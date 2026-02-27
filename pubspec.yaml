@@ -1,0 +1,23 @@
+name: vtt_to_lrc
+description: "VTT → LRC 字幕转换器"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  macos_ui: ^2.1.4
+  desktop_drop: ^0.5.0
+  file_picker: ^8.0.0
+  path: ^1.9.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

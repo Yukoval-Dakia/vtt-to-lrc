@@ -1,10 +1,16 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
+# Flutter
+.dart_tool/
+.packages
 build/
-dist/
-wheels/
-*.egg-info
+*.iml
+.metadata
+pubspec.lock
 
-# Virtual environments
-.venv
+# IDE
+.idea/
+*.swp
+.vscode/
+
+# macOS
+.DS_Store
+macos/Flutter/ephemeral/
