@@ -1,0 +1,20 @@
+[project]
+name = "vtt-to-lrc"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "yukovaldakia", email = "yukovaldakia09@outlook.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "pyqt6",
+    "pyqt6-tools",
+]
+
+[project.scripts]
+vtt-to-lrc = "main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
