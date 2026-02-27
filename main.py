@@ -22,7 +22,7 @@ def vtt_time_to_lrc(t):
 def convert_vtt_to_lrc(path):
     with open(path, "r", encoding="utf-8") as f:
         lines = f.readlines()
-
+        
     out = []
     i = 0
     while i < len(lines):
@@ -38,11 +38,7 @@ def convert_vtt_to_lrc(path):
             out.append(lrc_time + text.strip())
         i += 1
 
-    base_name = path.replace(".vtt", "")
-    if base_name.count(".") > 0:
-        parts = base_name.rsplit(".", 1)
-        base_name = parts[0]
-
+    base_name = os.path.splitext(path)[0]
     lrc_path = base_name + ".lrc"
     with open(lrc_path, "w", encoding="utf-8") as f:
         f.write("\n".join(out))
@@ -50,20 +46,37 @@ def convert_vtt_to_lrc(path):
 
 
 def convert_files(filepaths):
-    results = []
+    successes = []
+    failures = []
     for path in filepaths:
-        if path.endswith(".vtt") and os.path.isfile(path):
-            lrc_path = convert_vtt_to_lrc(path)
-            results.append((path, lrc_path))
-    return results
+        if path.lower().endswith(".vtt") and os.path.isfile(path):
+            try:
+                lrc_path = convert_vtt_to_lrc(path)
+                successes.append((path, lrc_path))
+            except PermissionError as e:
+                reason = e.strerror or str(e)
+                failures.append((path, f"权限不足：{reason}"))
+            except OSError as e:
+                reason = e.strerror or str(e)
+                failures.append((path, f"文件访问失败：{reason}"))
+            except Exception as e:
+                failures.append((path, f"转换失败 ({type(e).__name__})：{e}"))
+    return successes, failures
 
 
-def scan_directory_for_vtt(directory):
+def scan_directory_for_vtt(directory, on_warning=None):
     """递归扫描目录及其子目录下的所有 VTT 文件"""
     vtt_files = []
-    for root, dirs, files in os.walk(directory):
+
+    def _walk_error(err):
+        if on_warning:
+            target = err.filename or directory
+            detail = err.strerror or str(err)
+            on_warning(f"跳过不可访问目录：{target}（{detail}）")
+
+    for root, dirs, files in os.walk(directory, onerror=_walk_error):
         for file in files:
-            if file.endswith(".vtt"):
+            if file.lower().endswith(".vtt"):
                 vtt_files.append(os.path.join(root, file))
     return vtt_files
 
@@ -244,6 +257,7 @@ class VTTConverterApp(QWidget):
         self.selected_files = []
         self.selected_directory = ""
         self.setObjectName("mainWindow")
+        self.setAcceptDrops(True)
         self.setup_ui()
 
     def setup_ui(self):
@@ -369,6 +383,50 @@ class VTTConverterApp(QWidget):
         else:
             self.lbl_file_count.setText("")
 
+    def _log_scan_warning(self, msg):
+        self.log(msg, "#ff9f43")
+
+    def _set_selected_files(self, files, source="dialog"):
+        self.selected_files = files
+        self.selected_directory = ""
+        self.lbl_status.setText(f"📄  已选择 {len(files)} 个文件")
+        self.btn_convert.setEnabled(True)
+        self.btn_clear.setVisible(True)
+        self._update_file_count(len(files))
+        self.log("拖拽导入文件：" if source == "drop" else "选择了文件：", "#667eea")
+        for f in files:
+            self.log(f"   {os.path.basename(f)}", "#9999cc")
+
+    def _set_selected_directory(self, directory, source="dialog"):
+        self.selected_directory = directory
+        self.selected_files = []
+        vtt_files = scan_directory_for_vtt(directory, on_warning=self._log_scan_warning)
+        count = len(vtt_files)
+        self.lbl_status.setText(f"📂  {os.path.basename(directory)}/  — 发现 {count} 个 VTT 文件")
+        self.btn_convert.setEnabled(count > 0)
+        self.btn_clear.setVisible(True)
+        self._update_file_count(count)
+        self.log(f"拖拽导入目录：{directory}" if source == "drop" else f"扫描目录：{directory}", "#43e97b")
+        for f in vtt_files:
+            self.log(f"   {os.path.relpath(f, directory)}", "#9999cc")
+
+    def _collect_vtt_from_paths(self, paths, on_warning=None):
+        collected = []
+        for path in paths:
+            if os.path.isdir(path):
+                collected.extend(scan_directory_for_vtt(path, on_warning=on_warning))
+            elif os.path.isfile(path) and path.lower().endswith(".vtt"):
+                collected.append(path)
+
+        unique_files = []
+        seen = set()
+        for path in collected:
+            abs_path = os.path.abspath(path)
+            if abs_path not in seen:
+                seen.add(abs_path)
+                unique_files.append(abs_path)
+        return unique_files
+
     # ── 交互逻辑 ────────────────────────────────────────────────────────────
 
     def on_select_files(self):
@@ -379,15 +437,7 @@ class VTTConverterApp(QWidget):
             "VTT 文件 (*.vtt);;所有文件 (*.*)"
         )
         if files:
-            self.selected_files = files
-            self.selected_directory = ""
-            self.lbl_status.setText(f"📄  已选择 {len(files)} 个文件")
-            self.btn_convert.setEnabled(True)
-            self.btn_clear.setVisible(True)
-            self._update_file_count(len(files))
-            self.log("选择了文件：", "#667eea")
-            for f in files:
-                self.log(f"   {os.path.basename(f)}", "#9999cc")
+            self._set_selected_files(files)
         else:
             self.selected_files = []
             self._check_empty()
@@ -400,20 +450,41 @@ class VTTConverterApp(QWidget):
             QFileDialog.Option.ShowDirsOnly
         )
         if directory:
-            self.selected_directory = directory
-            self.selected_files = []
-            vtt_files = scan_directory_for_vtt(directory)
-            count = len(vtt_files)
-            self.lbl_status.setText(f"📂  {os.path.basename(directory)}/  — 发现 {count} 个 VTT 文件")
-            self.btn_convert.setEnabled(count > 0)
-            self.btn_clear.setVisible(True)
-            self._update_file_count(count)
-            self.log(f"扫描目录：{directory}", "#43e97b")
-            for f in vtt_files:
-                self.log(f"   {os.path.relpath(f, directory)}", "#9999cc")
+            self._set_selected_directory(directory)
         else:
             self.selected_directory = ""
             self._check_empty()
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls() and any(url.isLocalFile() for url in event.mimeData().urls()):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        local_paths = [url.toLocalFile() for url in event.mimeData().urls() if url.isLocalFile()]
+        if not local_paths:
+            event.ignore()
+            return
+
+        directories = [p for p in local_paths if os.path.isdir(p)]
+        files = [p for p in local_paths if os.path.isfile(p)]
+
+        if len(local_paths) == 1 and directories and not files:
+            self._set_selected_directory(directories[0], source="drop")
+            event.acceptProposedAction()
+            return
+
+        vtt_files = self._collect_vtt_from_paths(local_paths, on_warning=self._log_scan_warning)
+        if vtt_files:
+            if directories and files:
+                self.log(f"  (包含 {len(directories)} 个目录，已展开)", "#9999cc")
+            self._set_selected_files(vtt_files, source="drop")
+        else:
+            self.log("拖拽内容中未找到可转换的 VTT 文件。", "#ff6a88")
+            QMessageBox.information(self, "提示", "拖拽内容中没有找到可转换的 VTT 文件。")
+
+        event.acceptProposedAction()
 
     def on_clear_selection(self):
         self.selected_files = []
@@ -438,7 +509,7 @@ class VTTConverterApp(QWidget):
             files_to_convert = self.selected_files
             self.log("开始转换所选文件…", "#ffcc00")
         elif self.selected_directory:
-            files_to_convert = scan_directory_for_vtt(self.selected_directory)
+            files_to_convert = scan_directory_for_vtt(self.selected_directory, on_warning=self._log_scan_warning)
             self.log(f"开始转换目录中的文件…", "#ffcc00")
         else:
             QMessageBox.warning(self, "提示", "请先选择要转换的 .vtt 文件或包含 VTT 文件的目录。")
@@ -449,15 +520,33 @@ class VTTConverterApp(QWidget):
             QMessageBox.information(self, "提示", "没有找到可转换的 VTT 文件。")
             return
 
-        results = convert_files(files_to_convert)
+        successes, failures = convert_files(files_to_convert)
 
-        if results:
-            for src, dst in results:
-                src_name = os.path.basename(src)
-                dst_name = os.path.basename(dst)
-                self.log(f"✔ {src_name}  →  {dst_name}", "#43e97b")
-            self.log(f"全部完成！共转换 {len(results)} 个文件 🎉", "#43e97b")
-            QMessageBox.information(self, "完成", f"✅ 已成功转换 {len(results)} 个文件。")
+        for src, dst in successes:
+            src_name = os.path.basename(src)
+            dst_name = os.path.basename(dst)
+            self.log(f"✔ {src_name}  →  {dst_name}", "#43e97b")
+
+        for src, reason in failures:
+            self.log(f"✘ {os.path.basename(src)}  →  {reason}", "#ff6a88")
+
+        if failures:
+            self.log(f"转换结束：成功 {len(successes)} 个，失败 {len(failures)} 个。", "#ff9f43")
+            lines = [f"成功 {len(successes)} 个，失败 {len(failures)} 个。"]
+            lines.append("")
+            lines.append("失败示例：")
+            for src, reason in failures[:5]:
+                lines.append(f"- {os.path.basename(src)}：{reason}")
+            if len(failures) > 5:
+                lines.append(f"- ... 另有 {len(failures) - 5} 个失败")
+
+            title = "完成（部分失败）" if successes else "转换失败"
+            QMessageBox.warning(self, title, "\n".join(lines))
+            return
+
+        if successes:
+            self.log(f"全部完成！共转换 {len(successes)} 个文件 🎉", "#43e97b")
+            QMessageBox.information(self, "完成", f"✅ 已成功转换 {len(successes)} 个文件。")
         else:
             self.log("没有成功转换的文件。", "#ff6a88")
             QMessageBox.information(self, "提示", "没有成功转换的文件。")
@@ -490,15 +579,20 @@ def run_gui():
 def main():
     args = sys.argv[1:]
     if args:
-        for path in args:
-            if os.path.isfile(path) and path.endswith(".vtt"):
-                lrc_path = convert_vtt_to_lrc(path)
-                print("Converted:", lrc_path)
-        if not any(a.endswith(".vtt") and os.path.isfile(a) for a in args):
+        target_files = [path for path in args if os.path.isfile(path) and path.lower().endswith(".vtt")]
+        if not target_files:
             for filename in os.listdir("."):
-                if filename.endswith(".vtt"):
-                    lrc_path = convert_vtt_to_lrc(filename)
-                    print("Converted:", lrc_path)
+                if filename.lower().endswith(".vtt"):
+                    target_files.append(filename)
+
+        successes, failures = convert_files(target_files)
+        for _, lrc_path in successes:
+            print("Converted:", lrc_path)
+        for src, reason in failures:
+            print(f"Failed: {src} -> {reason}")
+
+        if failures:
+            sys.exit(1)
     else:
         run_gui()
 
