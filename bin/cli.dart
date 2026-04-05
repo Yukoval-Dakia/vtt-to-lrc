@@ -52,7 +52,7 @@ void main(List<String> args) {
     exit(1);
   }
 
-  List<ConversionResult> results;
+  List<ConvertResult> results;
   try {
     results = convertFiles(targetFiles);
   } catch (e) {

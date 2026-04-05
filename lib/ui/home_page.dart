@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 
 import '../services/services.dart';
 import '../core/vtt_converter.dart' show ConvertResult;
+import '../core/file_scanner.dart' show scanDirectoryForVtt;
 import 'log_view.dart';
 import 'drop_overlay.dart';
 
@@ -214,26 +215,17 @@ class _HomePageState extends State<HomePage> {
   Future<void> _onConvert() async {
     if (_appState.isConverting) return;
 
-    // 获取要转换的文件列表
-    List<String> filesToConvert = _appState.selectedFiles;
+    var filesToConvert = _appState.selectedFiles.toList();
 
+    // If no files selected but a directory is chosen, scan it first
     if (filesToConvert.isEmpty && _appState.selectedDirectory.isNotEmpty) {
-      // 从目录中扫描文件
-      try {
-        final summary = await widget.conversionService.convertDirectory(
-          _appState.selectedDirectory,
-          onProgress: _onConversionProgress,
-          onLog: _onConversionLog,
-          onWarning: (msg) => _appState.addLog(msg, color: _AppColors.warning),
-        );
-        _handleConversionResult(summary);
-        return;
-      } on ConversionException catch (e) {
-        _appState.addLog(e.message, color: _AppColors.error);
-        _showAlert('提示', e.message);
-        return;
-      } catch (e) {
-        _showError('转换', e);
+      filesToConvert = scanDirectoryForVtt(
+        _appState.selectedDirectory,
+        onWarning: (msg) => _appState.addLog(msg, color: _AppColors.warning),
+      );
+      if (filesToConvert.isEmpty) {
+        _appState.addLog('目录中没有找到可转换的 VTT 文件。', color: _AppColors.error);
+        _showAlert('提示', '目录中没有找到可转换的 VTT 文件。');
         return;
       }
     }
@@ -244,9 +236,7 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    // 开始转换
     _appState.startConversion(filesToConvert.length);
-
     try {
       final summary = await widget.conversionService.convertFiles(
         filesToConvert,
@@ -279,8 +269,6 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _handleConversionResult(ConversionSummary summary) {
-    _appState.finishConversion();
-
     if (summary.hasFailures) {
       _appState.addLog(
         '转换结束：成功 ${summary.successCount} 个，失败 ${summary.failureCount} 个。',

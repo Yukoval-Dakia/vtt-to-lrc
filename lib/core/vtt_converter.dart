@@ -196,7 +196,7 @@ String cleanVttText(String text) {
   // 使用正则表达式匹配所有 VTT 格式标签
   // 匹配: <tag>, </tag>, <tag.attr>, </tag>
   final tagPattern = RegExp(
-    r'<(/?)(b|i|c|u|ruby|rt)(?:\s+[^>]*)?>',
+    r'<(/?)(b|i|c|u|ruby|rt)(?:[.\s][^>]*)?>',
     caseSensitive: false,
   );
   return text.replaceAll(tagPattern, '');
@@ -371,45 +371,44 @@ List<String> _filterVttFiles(List<String> filePaths) {
 
 /// 批量转换文件（异步版本，并行处理）
 /// 支持 [onProgress] 回调通知转换进度
-/// 使用 [Future.wait] 实现并行转换，显著提升大量文件的处理速度
+/// 使用分批并行转换（每批 [_batchSize] 个），避免大量文件时耗尽 I/O 资源
 Future<List<ConvertResult>> convertFilesAsync(
   List<String> filePaths, {
   ProgressCallback? onProgress,
 }) async {
   final vttFiles = _filterVttFiles(filePaths);
-  
+
   if (vttFiles.isEmpty) {
     return [];
   }
-  
+
+  const int batchSize = 8;
+
   // 通知开始处理
   onProgress?.call(0, vttFiles.length, null);
-  
-  // 使用 Map 存储结果，保证顺序与输入一致
-  final resultMap = <int, ConvertResult>{};
+
+  // 预分配结果列表，保证顺序与输入一致
+  final results = List<ConvertResult?>.filled(vttFiles.length, null);
   var completedCount = 0;
-  
-  // 创建所有转换任务并并行执行
-  final futures = <Future<void>>[];
-  for (var i = 0; i < vttFiles.length; i++) {
-    final index = i;
-    final path = vttFiles[i];
-    
-    futures.add(_convertSingleFileAsync(path).then((result) {
-      // 存储结果（保持原始顺序）
-      resultMap[index] = result;
-      // 更新完成计数
-      completedCount++;
-      // 通知进度（传递刚完成的结果）
-      onProgress?.call(completedCount, vttFiles.length, result);
-    }));
+
+  // 分批并行处理
+  for (var start = 0; start < vttFiles.length; start += batchSize) {
+    final end = (start + batchSize).clamp(0, vttFiles.length);
+    final batchFutures = <Future<void>>[];
+
+    for (var i = start; i < end; i++) {
+      final index = i;
+      batchFutures.add(_convertSingleFileAsync(vttFiles[i]).then((result) {
+        results[index] = result;
+        completedCount++;
+        onProgress?.call(completedCount, vttFiles.length, result);
+      }));
+    }
+
+    await Future.wait(batchFutures);
   }
-  
-  // 等待所有任务完成
-  await Future.wait(futures);
-  
-  // 按原始顺序返回结果
-  return List.generate(vttFiles.length, (i) => resultMap[i]!);
+
+  return results.cast<ConvertResult>();
 }
 
 /// 批量转换文件（同步版本）
