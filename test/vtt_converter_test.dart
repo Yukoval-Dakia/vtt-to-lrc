@@ -61,10 +61,9 @@ void main() {
       );
     });
 
-    test('保留带点号的类名标签（当前实现不支持）', () {
-      // 当前正则不支持 <c.classname> 格式，只支持空格分隔的属性
-      // 但 </c> 会被移除，因为它是标准的结束标签
-      expect(cleanVttText('<c.classname>带类名</c>'), '<c.classname>带类名');
+    test('移除带点号的类名标签', () {
+      expect(cleanVttText('<c.classname>带类名</c>'), '带类名');
+      expect(cleanVttText('<c.yellow>黄色文字</c>'), '黄色文字');
     });
   });
 
