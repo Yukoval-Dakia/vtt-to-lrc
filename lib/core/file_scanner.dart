@@ -9,29 +9,29 @@ const int defaultMaxDepth = 10;
 /// [directory] - 要扫描的目录路径
 /// [maxDepth] - 最大递归深度，默认为 [defaultMaxDepth]（10层）
 /// [onWarning] - 警告回调函数
-List<String> scanDirectoryForVtt(
+Future<List<String>> scanDirectoryForVtt(
   String directory, {
   int maxDepth = defaultMaxDepth,
   void Function(String)? onWarning,
-}) {
+}) async {
   final vttFiles = <String>[];
   final dir = Directory(directory);
 
   if (!dir.existsSync()) return vttFiles;
 
   // 使用手动递归来控制深度
-  void scanRecursive(Directory currentDir, int currentDepth) {
+  Future<void> scanRecursive(Directory currentDir, int currentDepth) async {
     if (currentDepth > maxDepth) {
       onWarning?.call('达到最大扫描深度限制 ($maxDepth)，跳过目录：${currentDir.path}');
       return;
     }
 
     try {
-      for (final entity in currentDir.listSync(followLinks: false)) {
+      await for (final entity in currentDir.list(followLinks: false)) {
         if (entity is File && entity.path.toLowerCase().endsWith('.vtt')) {
           vttFiles.add(entity.path);
         } else if (entity is Directory) {
-          scanRecursive(entity, currentDepth + 1);
+          await scanRecursive(entity, currentDepth + 1);
         }
       }
     } on FileSystemException catch (e) {
@@ -39,7 +39,7 @@ List<String> scanDirectoryForVtt(
     }
   }
 
-  scanRecursive(dir, 1);
+  await scanRecursive(dir, 1);
 
   return vttFiles;
 }
@@ -49,18 +49,18 @@ List<String> scanDirectoryForVtt(
 /// [paths] - 文件或目录路径列表
 /// [maxDepth] - 最大递归深度，默认为 [defaultMaxDepth]（10层）
 /// [onWarning] - 警告回调函数
-List<String> collectVttFromPaths(
+Future<List<String>> collectVttFromPaths(
   List<String> paths, {
   int maxDepth = defaultMaxDepth,
   void Function(String)? onWarning,
-}) {
+}) async {
   final collected = <String>[];
 
   for (final path in paths) {
     try {
       final type = FileSystemEntity.typeSync(path);
       if (type == FileSystemEntityType.directory) {
-        collected.addAll(scanDirectoryForVtt(path, maxDepth: maxDepth, onWarning: onWarning));
+        collected.addAll(await scanDirectoryForVtt(path, maxDepth: maxDepth, onWarning: onWarning));
       } else if (type == FileSystemEntityType.file &&
           path.toLowerCase().endsWith('.vtt')) {
         collected.add(path);

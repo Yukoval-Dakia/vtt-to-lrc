@@ -84,7 +84,7 @@ class ConversionService {
     required void Function(String message, bool isError) onLog,
     required void Function(String) onWarning,
   }) async {
-    final files = scanDirectoryForVtt(
+    final files = await scanDirectoryForVtt(
       directory,
       onWarning: onWarning,
     );

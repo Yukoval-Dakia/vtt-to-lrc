@@ -371,7 +371,7 @@ List<String> _filterVttFiles(List<String> filePaths) {
 
 /// 批量转换文件（异步版本，并行处理）
 /// 支持 [onProgress] 回调通知转换进度
-/// 使用分批并行转换（每批 [_batchSize] 个），避免大量文件时耗尽 I/O 资源
+/// 使用分批并行转换（每批 [batchSize] 个），避免大量文件时耗尽 I/O 资源
 Future<List<ConvertResult>> convertFilesAsync(
   List<String> filePaths, {
   ProgressCallback? onProgress,

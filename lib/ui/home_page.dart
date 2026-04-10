@@ -219,7 +219,7 @@ class _HomePageState extends State<HomePage> {
 
     // If no files selected but a directory is chosen, scan it first
     if (filesToConvert.isEmpty && _appState.selectedDirectory.isNotEmpty) {
-      filesToConvert = scanDirectoryForVtt(
+      filesToConvert = await scanDirectoryForVtt(
         _appState.selectedDirectory,
         onWarning: (msg) => _appState.addLog(msg, color: _AppColors.warning),
       );
