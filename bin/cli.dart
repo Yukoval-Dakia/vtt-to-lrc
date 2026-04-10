@@ -2,7 +2,7 @@ import 'dart:io';
 import '../lib/core/vtt_converter.dart';
 import '../lib/core/file_scanner.dart';
 
-void main(List<String> args) {
+Future<void> main(List<String> args) async {
   var targetFiles = <String>[];
 
   if (args.isNotEmpty) {
@@ -22,7 +22,7 @@ void main(List<String> args) {
           stderr.writeln('警告: 无法访问路径 "$arg": ${e.message}');
         }
       }
-      targetFiles = collectVttFromPaths(validPaths);
+      targetFiles = await collectVttFromPaths(validPaths);
     } catch (e) {
       stderr.writeln('错误: 处理参数时发生异常: $e');
       exit(2);

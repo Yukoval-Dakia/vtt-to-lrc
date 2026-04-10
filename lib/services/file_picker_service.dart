@@ -58,7 +58,7 @@ class FilePickerService {
       final result = await FilePicker.platform.getDirectoryPath();
 
       if (result != null) {
-        final vttFiles = scanDirectoryForVtt(
+        final vttFiles = await scanDirectoryForVtt(
           result,
           onWarning: onWarning,
         );
@@ -94,7 +94,7 @@ class FilePickerService {
 
     // 如果只拖拽了一个目录，直接处理该目录
     if (paths.length == 1 && directories.isNotEmpty && files.isEmpty) {
-      final vttFiles = scanDirectoryForVtt(
+      final vttFiles = await scanDirectoryForVtt(
         directories.first,
         onWarning: onWarning,
       );
@@ -109,7 +109,7 @@ class FilePickerService {
     }
 
     // 处理混合内容（文件和目录）
-    final vttFiles = collectVttFromPaths(
+    final vttFiles = await collectVttFromPaths(
       paths,
       onWarning: onWarning,
     );

@@ -135,10 +135,10 @@ class AppState extends ChangeNotifier {
   }) {
     Color? color;
     if (isError) color = const Color(0xFFFF3B30);
-    if (isSuccess) color = const Color(0xFF34C759);
-    if (isWarning) color = const Color(0xFFFF9500);
-    if (isInfo) color = const Color(0xFF007AFF);
-    if (isMuted) color = const Color(0xFF8E8E93);
+    else if (isSuccess) color = const Color(0xFF34C759);
+    else if (isWarning) color = const Color(0xFFFF9500);
+    else if (isInfo) color = const Color(0xFF007AFF);
+    else if (isMuted) color = const Color(0xFF8E8E93);
 
     _logService.add(message, color: color);
     notifyListeners();
