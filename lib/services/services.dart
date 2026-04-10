@@ -5,3 +5,4 @@ export 'log_service.dart';
 export 'file_picker_service.dart';
 export 'conversion_service.dart';
 export 'app_state.dart';
+export 'rust_backend_service.dart';

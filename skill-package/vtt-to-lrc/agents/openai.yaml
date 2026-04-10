@@ -1,0 +1,4 @@
+interface:
+  display_name: "VTT to LRC"
+  short_description: "将 WebVTT 字幕批量转换为 LRC 歌词的离线工具"
+  default_prompt: "Use $vtt-to-lrc 将一个或多个 .vtt 文件或目录转换为同目录下的 .lrc 文件。"

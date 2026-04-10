@@ -59,7 +59,7 @@ class AppState extends ChangeNotifier {
   /// 设置选中的目录
   void setSelectedDirectory(String directory, List<String> vttFiles, {String source = 'dialog'}) {
     _selectedDirectory = directory;
-    _selectedFiles = [];
+    _selectedFiles = vttFiles;
     _statusText = '$directory/  — 发现 ${vttFiles.length} 个 VTT 文件';
     _canConvert = vttFiles.isNotEmpty;
     _fileCount = vttFiles.length;
@@ -134,11 +134,17 @@ class AppState extends ChangeNotifier {
     bool isMuted = false,
   }) {
     Color? color;
-    if (isError) color = const Color(0xFFFF3B30);
-    else if (isSuccess) color = const Color(0xFF34C759);
-    else if (isWarning) color = const Color(0xFFFF9500);
-    else if (isInfo) color = const Color(0xFF007AFF);
-    else if (isMuted) color = const Color(0xFF8E8E93);
+    if (isError) {
+      color = const Color(0xFFFF3B30);
+    } else if (isSuccess) {
+      color = const Color(0xFF34C759);
+    } else if (isWarning) {
+      color = const Color(0xFFFF9500);
+    } else if (isInfo) {
+      color = const Color(0xFF007AFF);
+    } else if (isMuted) {
+      color = const Color(0xFF8E8E93);
+    }
 
     _logService.add(message, color: color);
     notifyListeners();

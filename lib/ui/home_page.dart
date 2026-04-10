@@ -6,8 +6,6 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:path/path.dart' as p;
 
 import '../services/services.dart';
-import '../core/vtt_converter.dart' show ConvertResult;
-import '../core/file_scanner.dart' show scanDirectoryForVtt;
 import 'log_view.dart';
 import 'drop_overlay.dart';
 
@@ -215,20 +213,7 @@ class _HomePageState extends State<HomePage> {
   Future<void> _onConvert() async {
     if (_appState.isConverting) return;
 
-    var filesToConvert = _appState.selectedFiles.toList();
-
-    // If no files selected but a directory is chosen, scan it first
-    if (filesToConvert.isEmpty && _appState.selectedDirectory.isNotEmpty) {
-      filesToConvert = await scanDirectoryForVtt(
-        _appState.selectedDirectory,
-        onWarning: (msg) => _appState.addLog(msg, color: _AppColors.warning),
-      );
-      if (filesToConvert.isEmpty) {
-        _appState.addLog('目录中没有找到可转换的 VTT 文件。', color: _AppColors.error);
-        _showAlert('提示', '目录中没有找到可转换的 VTT 文件。');
-        return;
-      }
-    }
+    final filesToConvert = _appState.getFilesToConvert();
 
     if (filesToConvert.isEmpty) {
       _appState.addLog('未找到可转换的 VTT 文件。', color: _AppColors.error);

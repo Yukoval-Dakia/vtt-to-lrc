@@ -1,6 +1,6 @@
 import 'package:path/path.dart' as p;
-import '../core/vtt_converter.dart';
-import '../core/file_scanner.dart';
+
+import 'rust_backend_service.dart';
 
 /// 转换进度回调
 /// [current]: 当前完成的数量
@@ -15,7 +15,12 @@ typedef ConversionProgressCallback = void Function(
 /// 转换服务
 /// 负责处理 VTT 到 LRC 的转换业务逻辑
 class ConversionService {
+  final RustBackendService _rustBackendService;
   bool _isConverting = false;
+
+  ConversionService({
+    RustBackendService? rustBackendService,
+  }) : _rustBackendService = rustBackendService ?? RustBackendService();
 
   bool get isConverting => _isConverting;
 
@@ -42,7 +47,7 @@ class ConversionService {
     _isConverting = true;
 
     try {
-      final results = await convertFilesAsync(
+      final results = await _rustBackendService.convertFiles(
         files,
         onProgress: onProgress,
       );
@@ -75,29 +80,6 @@ class ConversionService {
     } finally {
       _isConverting = false;
     }
-  }
-
-  /// 从目录中收集 VTT 文件并转换
-  Future<ConversionSummary> convertDirectory(
-    String directory, {
-    required ConversionProgressCallback onProgress,
-    required void Function(String message, bool isError) onLog,
-    required void Function(String) onWarning,
-  }) async {
-    final files = await scanDirectoryForVtt(
-      directory,
-      onWarning: onWarning,
-    );
-
-    if (files.isEmpty) {
-      throw ConversionException('目录中没有找到可转换的 VTT 文件');
-    }
-
-    return convertFiles(
-      files,
-      onProgress: onProgress,
-      onLog: onLog,
-    );
   }
 
   /// 重置转换状态

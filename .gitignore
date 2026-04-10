@@ -19,3 +19,6 @@ pubspec.lock
 # macOS
 .DS_Store
 macos/Flutter/ephemeral/
+
+# Rust CLI
+rust-cli/target/
