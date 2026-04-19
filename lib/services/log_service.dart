@@ -31,12 +31,12 @@ class LogService {
     _entries.clear();
   }
 
-  // 时间戳缓存：避免频繁创建 DateTime 对象
-  static int _cachedTimestampSecond = -1;
-  static String _cachedTimestampString = '';
+  // 时间戳缓存：避免同一秒内重复格式化字符串
+  int _cachedTimestampSecond = -1;
+  String _cachedTimestampString = '';
 
   /// 生成时间戳字符串（带缓存优化）
-  /// 同一秒内的多次调用返回缓存的结果，减少 DateTime 对象创建
+  /// 同一秒内的多次调用返回缓存的结果，减少重复格式化开销
   String _generateTimestamp() {
     final now = DateTime.now();
     final currentSecond = now.hour * 3600 + now.minute * 60 + now.second;
