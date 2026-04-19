@@ -35,6 +35,9 @@ typedef ProgressCallback = void Function(
   ConvertResult? result,
 );
 
+/// Rust 警告回调类型（需要提醒用户但不导致转换失败的 stderr 信息）
+typedef WarningCallback = void Function(String message);
+
 /// Rust 后端异常
 class RustBackendException implements Exception {
   final String message;
@@ -45,13 +48,37 @@ class RustBackendException implements Exception {
   String toString() => message;
 }
 
+class _RustCommandInvocation {
+  final List<String> arguments;
+  final String? cleanupDirectoryPath;
+
+  const _RustCommandInvocation({
+    required this.arguments,
+    this.cleanupDirectoryPath,
+  });
+}
+
 /// Rust 后端服务
 /// 负责解压、调用并解析 Rust 可执行文件
 class RustBackendService {
   static const String _backendAssetPath = 'assets/backend/vtt-to-lrc-macos-arm64';
   static const String _backendFileName = 'vtt-to-lrc-macos-arm64';
+  static const int _defaultMaxInlineArgumentCount = 200;
+  static const int _defaultMaxInlineArgumentBytes = 100000;
+
+  RustBackendService({
+    int maxInlineArgumentCount = _defaultMaxInlineArgumentCount,
+    int maxInlineArgumentBytes = _defaultMaxInlineArgumentBytes,
+  }) : _maxInlineArgumentCount = maxInlineArgumentCount < 1
+           ? 1
+           : maxInlineArgumentCount,
+       _maxInlineArgumentBytes = maxInlineArgumentBytes < 1
+           ? 1
+           : maxInlineArgumentBytes;
 
   String? _cachedExecutablePath;
+  final int _maxInlineArgumentCount;
+  final int _maxInlineArgumentBytes;
 
   /// 扫描路径中的所有 VTT 文件
   Future<RustScanResult> scanPaths(List<String> paths) async {
@@ -60,31 +87,41 @@ class RustBackendService {
     }
 
     final executablePath = await _ensureExecutable();
-    final result = await Process.run(
-      executablePath,
-      ['scan', ...paths],
-    );
+    final invocation = await _buildCommandInvocation('scan', paths);
+    try {
+      final result = await Process.run(
+        executablePath,
+        invocation.arguments,
+      );
 
-    final files = _parseOutputLines(result.stdout);
-    final warnings = _parseOutputLines(result.stderr);
+      final files = _parseOutputLines(result.stdout);
+      final warnings = _parseOutputLines(result.stderr);
 
-    if (result.exitCode != 0) {
-      final message = warnings.isNotEmpty
-          ? warnings.join('\n')
-          : 'Rust 扫描进程退出码异常：${result.exitCode}';
-      throw RustBackendException(message);
+      if (result.exitCode != 0) {
+        final message = warnings.isNotEmpty
+            ? warnings.join('\n')
+            : 'Rust 扫描进程退出码异常：${result.exitCode}';
+        throw RustBackendException(message);
+      }
+
+      return RustScanResult(
+        files: files,
+        warnings: warnings,
+      );
+    } finally {
+      await _cleanupInvocation(invocation);
     }
-
-    return RustScanResult(
-      files: files,
-      warnings: warnings,
-    );
   }
 
   /// 批量转换文件
+  ///
+  /// [onProgress] 会在每个文件完成（成功或失败）时回调。
+  /// [onWarning] 会在 Rust stderr 输出非 `Failed:` 前缀的诊断信息时回调（如路径不存在、
+  /// 深度超限等）。这类信息不会导致整体转换失败，只作为提醒向 UI 显示。
   Future<List<ConvertResult>> convertFiles(
     List<String> files, {
     ProgressCallback? onProgress,
+    WarningCallback? onWarning,
   }) async {
     if (files.isEmpty) {
       return <ConvertResult>[];
@@ -92,6 +129,7 @@ class RustBackendService {
 
     final executablePath = await _ensureExecutable();
     final normalizedFiles = files.map(_normalizePath).toList();
+    final invocation = await _buildCommandInvocation('convert', normalizedFiles);
     final results = List<ConvertResult?>.filled(normalizedFiles.length, null);
     final sourceIndex = <String, int>{};
     final destinationIndex = <String, int>{};
@@ -104,99 +142,106 @@ class RustBackendService {
 
     onProgress?.call(0, normalizedFiles.length, null);
 
-    final process = await Process.start(
-      executablePath,
-      ['convert', ...normalizedFiles],
-    );
+    try {
+      final process = await Process.start(
+        executablePath,
+        invocation.arguments,
+      );
 
-    var completed = 0;
-    final unparsedErrors = <String>[];
-    final stdoutDone = Completer<void>();
-    final stderrDone = Completer<void>();
+      var completed = 0;
+      final warnings = <String>[];
+      final stdoutDone = Completer<void>();
+      final stderrDone = Completer<void>();
 
-    process.stdout
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen(
-          (line) {
-            final trimmed = line.trim();
-            if (trimmed.isEmpty) return;
+      process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen(
+            (line) {
+              final trimmed = line.trim();
+              if (trimmed.isEmpty) return;
 
-            final result = _parseSuccessLine(trimmed, destinationIndex, normalizedFiles);
-            if (result == null) {
-              return;
-            }
+              final result = _parseSuccessLine(trimmed, destinationIndex, normalizedFiles);
+              if (result == null) {
+                return;
+              }
 
-            final index = destinationIndex[_normalizePath(result.destination!)];
-            if (index == null || results[index] != null) {
-              return;
-            }
+              final index = destinationIndex[_normalizePath(result.destination!)];
+              if (index == null || results[index] != null) {
+                return;
+              }
 
-            results[index] = result;
-            completed++;
-            onProgress?.call(completed, normalizedFiles.length, result);
-          },
-          onDone: () => stdoutDone.complete(),
-          onError: (Object error, StackTrace stackTrace) {
-            stdoutDone.completeError(error, stackTrace);
-          },
-          cancelOnError: true,
-        );
+              results[index] = result;
+              completed++;
+              onProgress?.call(completed, normalizedFiles.length, result);
+            },
+            onDone: () => stdoutDone.complete(),
+            onError: (Object error, StackTrace stackTrace) {
+              stdoutDone.completeError(error, stackTrace);
+            },
+            cancelOnError: true,
+          );
 
-    process.stderr
-        .transform(utf8.decoder)
-        .transform(const LineSplitter())
-        .listen(
-          (line) {
-            final trimmed = line.trim();
-            if (trimmed.isEmpty) return;
+      process.stderr
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen(
+            (line) {
+              final trimmed = line.trim();
+              if (trimmed.isEmpty) return;
 
-            final result = _parseFailureLine(trimmed, sourceIndex);
-            if (result == null) {
-              unparsedErrors.add(trimmed);
-              return;
-            }
+              final result = _parseFailureLine(trimmed, sourceIndex);
+              if (result == null) {
+                warnings.add(trimmed);
+                onWarning?.call(trimmed);
+                return;
+              }
 
-            final index = sourceIndex[_normalizePath(result.source)];
-            if (index == null || results[index] != null) {
-              return;
-            }
+              final index = sourceIndex[_normalizePath(result.source)];
+              if (index == null || results[index] != null) {
+                return;
+              }
 
-            results[index] = result;
-            completed++;
-            onProgress?.call(completed, normalizedFiles.length, result);
-          },
-          onDone: () => stderrDone.complete(),
-          onError: (Object error, StackTrace stackTrace) {
-            stderrDone.completeError(error, stackTrace);
-          },
-          cancelOnError: true,
-        );
+              results[index] = result;
+              completed++;
+              onProgress?.call(completed, normalizedFiles.length, result);
+            },
+            onDone: () => stderrDone.complete(),
+            onError: (Object error, StackTrace stackTrace) {
+              stderrDone.completeError(error, stackTrace);
+            },
+            cancelOnError: true,
+          );
 
-    final exitCode = await process.exitCode;
-    await Future.wait<void>([stdoutDone.future, stderrDone.future]);
+      final exitCode = await process.exitCode;
+      await Future.wait<void>([stdoutDone.future, stderrDone.future]);
 
-    for (var i = 0; i < results.length; i++) {
-      if (results[i] == null) {
-        results[i] = ConvertResult.failure(
-          normalizedFiles[i],
-          '转换失败：后端未返回该文件的处理结果',
-        );
+      final hasAnyRealResult = results.any((r) => r != null);
+
+      for (var i = 0; i < results.length; i++) {
+        if (results[i] == null) {
+          results[i] = ConvertResult.failure(
+            normalizedFiles[i],
+            '转换失败：后端未返回该文件的处理结果',
+          );
+        }
       }
+
+      final resolvedResults = results.cast<ConvertResult>();
+
+      if (!hasAnyRealResult) {
+        if (warnings.isNotEmpty) {
+          throw RustBackendException(warnings.join('\n'));
+        }
+        if (exitCode != 0) {
+          throw RustBackendException('Rust 转换进程退出码异常：$exitCode');
+        }
+      }
+
+      return resolvedResults;
+    } finally {
+      await _cleanupInvocation(invocation);
     }
-
-    final resolvedResults = results.cast<ConvertResult>();
-    final hasFailures = resolvedResults.any((result) => !result.isSuccess);
-
-    if (exitCode != 0 && !hasFailures && unparsedErrors.isNotEmpty) {
-      throw RustBackendException(unparsedErrors.join('\n'));
-    }
-
-    if (exitCode == 0 && unparsedErrors.isNotEmpty) {
-      throw RustBackendException(unparsedErrors.join('\n'));
-    }
-
-    return resolvedResults;
   }
 
   Future<String> _ensureExecutable() async {
@@ -205,6 +250,13 @@ class RustBackendService {
     }
 
     final architectureResult = await Process.run('uname', ['-m']);
+    if (architectureResult.exitCode != 0) {
+      final errorMessage = architectureResult.stderr.toString().trim();
+      throw RustBackendException(
+        errorMessage.isNotEmpty ? errorMessage : '无法检测当前 macOS 架构。',
+      );
+    }
+
     final architecture = architectureResult.stdout.toString().trim();
     if (architecture != 'arm64') {
       throw RustBackendException(
@@ -225,6 +277,18 @@ class RustBackendService {
     final executablePath = p.join(backendDir.path, _backendFileName);
     final bytes = await _loadBackendBytes();
     final executableFile = File(executablePath);
+
+    if (await executableFile.exists()) {
+      final existingLength = await executableFile.length();
+      if (existingLength == bytes.length) {
+        final existingBytes = await executableFile.readAsBytes();
+        if (_bytesEqual(existingBytes, bytes)) {
+          _cachedExecutablePath = executablePath;
+          return executablePath;
+        }
+      }
+    }
+
     await executableFile.writeAsBytes(bytes, flush: true);
 
     final chmodResult = await Process.run('/bin/chmod', ['755', executablePath]);
@@ -246,6 +310,66 @@ class RustBackendService {
     } catch (error) {
       throw RustBackendException('无法加载 Rust 后端资源：$error');
     }
+  }
+
+  Future<_RustCommandInvocation> _buildCommandInvocation(
+    String command,
+    List<String> paths,
+  ) async {
+    if (!_shouldUseInputFile(paths)) {
+      return _RustCommandInvocation(arguments: [command, ...paths]);
+    }
+
+    final inputDir = await Directory.systemTemp.createTemp('vtt_to_lrc_args_');
+    final inputFile = File(p.join(inputDir.path, 'paths.txt'));
+    await inputFile.writeAsString(paths.join('\n'), flush: true);
+
+    return _RustCommandInvocation(
+      arguments: [command, '--input-file', inputFile.path],
+      cleanupDirectoryPath: inputDir.path,
+    );
+  }
+
+  Future<void> _cleanupInvocation(_RustCommandInvocation invocation) async {
+    final cleanupPath = invocation.cleanupDirectoryPath;
+    if (cleanupPath == null) {
+      return;
+    }
+
+    final directory = Directory(cleanupPath);
+    if (await directory.exists()) {
+      await directory.delete(recursive: true);
+    }
+  }
+
+  bool _shouldUseInputFile(List<String> paths) {
+    if (paths.length > _maxInlineArgumentCount) {
+      return true;
+    }
+
+    var totalBytes = 0;
+    for (final path in paths) {
+      totalBytes += utf8.encode(path).length + 1;
+      if (totalBytes > _maxInlineArgumentBytes) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  bool _bytesEqual(List<int> left, List<int> right) {
+    if (left.length != right.length) {
+      return false;
+    }
+
+    for (var i = 0; i < left.length; i++) {
+      if (left[i] != right[i]) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   List<String> _parseOutputLines(Object output) {

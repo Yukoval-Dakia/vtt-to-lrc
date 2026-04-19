@@ -28,12 +28,15 @@ flutter run -d macos
 dart run bin/cli.dart file1.vtt file2.vtt
 ```
 
-该入口会直接调用 `rust-cli/target/release/vtt-to-lrc-rust`。
+该入口会直接调用 `rust-cli/target/release/vtt-to-lrc-rust`，并在需要时自动切换到 `--input-file` 协议，降低大批量路径触发参数长度上限的风险。
 
 ## Rust CLI
 
 ```bash
 cargo run --manifest-path rust-cli/Cargo.toml -- file1.vtt file2.vtt
+
+# 大批量路径可改用输入文件
+cargo run --manifest-path rust-cli/Cargo.toml -- convert --input-file paths.txt
 ```
 
 - 默认保持当前 Dart CLI 的核心行为：目录参数递归扫描、当前目录默认非递归扫描、输出同名 `.lrc`
@@ -47,9 +50,17 @@ Flutter GUI 运行时会从 `assets/backend/vtt-to-lrc-macos-arm64` 解压 Rust 
 如果修改了 `rust-cli/` 代码，需要重新构建并同步资源：
 
 ```bash
+sh scripts/build-and-sync-rust-backend.sh
+```
+
+等价的手工命令为：
+
+```bash
 cargo build --release --manifest-path rust-cli/Cargo.toml
 cp rust-cli/target/release/vtt-to-lrc-rust assets/backend/vtt-to-lrc-macos-arm64
 chmod +x assets/backend/vtt-to-lrc-macos-arm64
+cp rust-cli/target/release/vtt-to-lrc-rust skill-package/vtt-to-lrc/scripts/vtt-to-lrc-macos-arm64
+chmod +x skill-package/vtt-to-lrc/scripts/vtt-to-lrc-macos-arm64
 ```
 
 ## 构建发布版

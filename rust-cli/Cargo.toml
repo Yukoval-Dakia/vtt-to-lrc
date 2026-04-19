@@ -10,3 +10,8 @@ regex = "1.11"
 
 [dev-dependencies]
 tempfile = "3.13"
+
+[profile.release]
+lto = true
+strip = true
+codegen-units = 1

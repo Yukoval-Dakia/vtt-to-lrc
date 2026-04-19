@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../ui/app_colors.dart';
 import '../ui/log_view.dart' show LogEntry;
 import 'log_service.dart';
 
@@ -135,15 +136,15 @@ class AppState extends ChangeNotifier {
   }) {
     Color? color;
     if (isError) {
-      color = const Color(0xFFFF3B30);
+      color = AppColors.error;
     } else if (isSuccess) {
-      color = const Color(0xFF34C759);
+      color = AppColors.success;
     } else if (isWarning) {
-      color = const Color(0xFFFF9500);
+      color = AppColors.warning;
     } else if (isInfo) {
-      color = const Color(0xFF007AFF);
+      color = AppColors.info;
     } else if (isMuted) {
-      color = const Color(0xFF8E8E93);
+      color = AppColors.muted;
     }
 
     _logService.add(message, color: color);

@@ -156,4 +156,98 @@ UTF-8 BOM 测试
       '[00:03.00]中文GBK测试',
     );
   });
+
+  test('stderr 警告不应吞掉成功结果（回归：路径不存在与有效文件混合）', () async {
+    // 回归测试：当传入的文件列表中包含不存在的路径时，Rust 会在 stderr 输出
+    // "警告: 路径不存在" 但 exitCode 为 0。旧实现会因此抛异常，丢失其他文件的
+    // 成功/失败结果。修复后应：
+    //   1. 成功转换的文件仍出现在结果中
+    //   2. 不存在的文件作为失败结果返回（后端未返回处理结果）
+    //   3. 警告通过 onWarning 回调传出而非抛异常
+    final validPath = p.join(tempDir.path, 'valid.vtt');
+    await File(validPath).writeAsString('''WEBVTT
+
+00:00:01.000 --> 00:00:03.000
+有效字幕
+''');
+
+    final missingPath = p.join(tempDir.path, 'not_there.vtt');
+    // 不要创建该文件，保持不存在
+
+    final warnings = <String>[];
+    final results = await rustBackendService.convertFiles(
+      [validPath, missingPath],
+      onWarning: warnings.add,
+    );
+
+    expect(results.length, 2);
+
+    final validResult =
+        results.firstWhere((r) => r.source == p.absolute(validPath));
+    expect(validResult.isSuccess, isTrue,
+        reason: '有效文件应转换成功，即便同批次有路径不存在警告');
+    expect(
+      await File(p.join(tempDir.path, 'valid.lrc')).readAsString(),
+      '[00:01.00]有效字幕',
+    );
+
+    final missingResult =
+        results.firstWhere((r) => r.source == p.absolute(missingPath));
+    expect(missingResult.isSuccess, isFalse,
+        reason: '不存在路径应被标记为失败而非静默丢弃');
+
+    expect(warnings, isNotEmpty, reason: '应至少收到一条 stderr 警告');
+    expect(
+      warnings.any((w) => w.contains('不存在')),
+      isTrue,
+      reason: '应包含路径不存在的警告文本，当前 warnings: $warnings',
+    );
+  });
+
+  test('--input-file 协议可用于扫描目录', () async {
+    final nestedDir = Directory(p.join(tempDir.path, 'scan_input_file'));
+    await nestedDir.create(recursive: true);
+
+    final sourcePath = p.join(nestedDir.path, 'input_scan.vtt');
+    await File(sourcePath).writeAsString('''WEBVTT
+
+00:00:01.000 --> 00:00:02.000
+扫描测试
+''');
+
+    final backend = RustBackendService(maxInlineArgumentBytes: 1);
+    final result = await backend.scanPaths([nestedDir.path]);
+
+    expect(result.warnings, isEmpty);
+    expect(result.files, [p.absolute(sourcePath)]);
+  });
+
+  test('--input-file 协议可用于批量转换', () async {
+    final firstPath = p.join(tempDir.path, 'first_input_file.vtt');
+    final secondPath = p.join(tempDir.path, 'second_input_file.vtt');
+    await File(firstPath).writeAsString('''WEBVTT
+
+00:00:01.000 --> 00:00:02.000
+第一条
+''');
+    await File(secondPath).writeAsString('''WEBVTT
+
+00:00:03.000 --> 00:00:04.000
+第二条
+''');
+
+    final backend = RustBackendService(maxInlineArgumentBytes: 1);
+    final results = await backend.convertFiles([firstPath, secondPath]);
+
+    expect(results.length, 2);
+    expect(results.every((result) => result.isSuccess), isTrue);
+    expect(
+      await File(p.join(tempDir.path, 'first_input_file.lrc')).readAsString(),
+      '[00:01.00]第一条',
+    );
+    expect(
+      await File(p.join(tempDir.path, 'second_input_file.lrc')).readAsString(),
+      '[00:03.00]第二条',
+    );
+  });
 }

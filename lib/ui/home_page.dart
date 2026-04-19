@@ -6,19 +6,13 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:path/path.dart' as p;
 
 import '../services/services.dart';
+import 'app_colors.dart';
 import 'log_view.dart';
 import 'drop_overlay.dart';
 
 /// 应用颜色配置
 /// 统一管理所有颜色，支持深色/浅色主题
 class _AppColors {
-  // ── 语义颜色 ──
-  static const Color success = Color(0xFF34C759);
-  static const Color error = Color(0xFFFF3B30);
-  static const Color warning = Color(0xFFFF9500);
-  static const Color info = Color(0xFF007AFF);
-  static const Color muted = Color(0xFF8E8E93);
-
   // ── 背景颜色 ──
   /// 主背景色
   static const Color backgroundLight = Color(0xFFF5F5F5);
@@ -72,13 +66,14 @@ class _AppColors {
 class HomePage extends StatefulWidget {
   final FilePickerService filePickerService;
   final ConversionService conversionService;
+  final AppState appState;
 
-  HomePage({
+  const HomePage({
     super.key,
-    FilePickerService? filePickerService,
-    ConversionService? conversionService,
-  }) : filePickerService = filePickerService ?? FilePickerService(),
-       conversionService = conversionService ?? ConversionService();
+    required this.filePickerService,
+    required this.conversionService,
+    required this.appState,
+  });
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -86,11 +81,12 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   // 应用状态
-  final AppState _appState = AppState();
+  late final AppState _appState;
 
   @override
   void initState() {
     super.initState();
+    _appState = widget.appState;
     _appState.addListener(_onStateChanged);
   }
 
@@ -115,7 +111,7 @@ class _HomePageState extends State<HomePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('$operation失败: ${error.toString()}'),
-          backgroundColor: _AppColors.error,
+          backgroundColor: AppColors.error,
         ),
       );
     }
@@ -156,7 +152,7 @@ class _HomePageState extends State<HomePage> {
   Future<void> _onSelectDirectory() async {
     try {
       final result = await widget.filePickerService.pickDirectory(
-        onWarning: (msg) => _appState.addLog(msg, color: _AppColors.warning),
+        onWarning: (msg) => _appState.addLog(msg, color: AppColors.warning),
       );
       if (result != null) {
         _appState.setSelectedDirectory(
@@ -189,8 +185,8 @@ class _HomePageState extends State<HomePage> {
     try {
       final result = await widget.filePickerService.processDroppedFiles(
         paths,
-        onWarning: (msg) => _appState.addLog(msg, color: _AppColors.warning),
-        onLog: (msg) => _appState.addLog(msg, color: _AppColors.muted),
+        onWarning: (msg) => _appState.addLog(msg, color: AppColors.warning),
+        onLog: (msg) => _appState.addLog(msg, color: AppColors.muted),
       );
 
       if (result != null && result.files.isNotEmpty) {
@@ -200,7 +196,7 @@ class _HomePageState extends State<HomePage> {
           _appState.setSelectedFiles(result.files, source: 'drop');
         }
       } else {
-        _appState.addLog('拖拽内容中未找到可转换的 VTT 文件。', color: _AppColors.error);
+        _appState.addLog('拖拽内容中未找到可转换的 VTT 文件。', color: AppColors.error);
         _showAlert('提示', '拖拽内容中没有找到可转换的 VTT 文件。');
       }
     } catch (e) {
@@ -216,7 +212,7 @@ class _HomePageState extends State<HomePage> {
     final filesToConvert = _appState.getFilesToConvert();
 
     if (filesToConvert.isEmpty) {
-      _appState.addLog('未找到可转换的 VTT 文件。', color: _AppColors.error);
+      _appState.addLog('未找到可转换的 VTT 文件。', color: AppColors.error);
       _showAlert('提示', '请先选择要转换的 .vtt 文件或包含 VTT 文件的目录。');
       return;
     }
@@ -227,10 +223,11 @@ class _HomePageState extends State<HomePage> {
         filesToConvert,
         onProgress: _onConversionProgress,
         onLog: _onConversionLog,
+        onWarning: _onConversionWarning,
       );
       _handleConversionResult(summary);
     } on ConversionException catch (e) {
-      _appState.addLog(e.message, color: _AppColors.error);
+      _appState.addLog(e.message, color: AppColors.error);
       _showAlert('提示', e.message);
     } catch (e) {
       _showError('转换', e);
@@ -249,15 +246,19 @@ class _HomePageState extends State<HomePage> {
   void _onConversionLog(String message, bool isError) {
     _appState.addLog(
       message,
-      color: isError ? _AppColors.error : null,
+      color: isError ? AppColors.error : null,
     );
+  }
+
+  void _onConversionWarning(String message) {
+    _appState.addLog(message, color: AppColors.warning);
   }
 
   void _handleConversionResult(ConversionSummary summary) {
     if (summary.hasFailures) {
       _appState.addLog(
         '转换结束：成功 ${summary.successCount} 个，失败 ${summary.failureCount} 个。',
-        color: _AppColors.warning,
+        color: AppColors.warning,
       );
 
       final title = summary.successCount > 0 ? '完成（部分失败）' : '转换失败';
@@ -268,11 +269,11 @@ class _HomePageState extends State<HomePage> {
     if (summary.allSucceeded) {
       _appState.addLog(
         '全部完成！共转换 ${summary.successCount} 个文件',
-        color: _AppColors.success,
+        color: AppColors.success,
       );
       _showAlert('完成', '已成功转换 ${summary.successCount} 个文件。');
     } else {
-      _appState.addLog('没有成功转换的文件。', color: _AppColors.error);
+      _appState.addLog('没有成功转换的文件。', color: AppColors.error);
       _showAlert('提示', '没有成功转换的文件。');
     }
   }
@@ -473,13 +474,13 @@ class _HomePageState extends State<HomePage> {
                   ? _appState.convertedCount / _appState.totalCount
                   : 0,
               backgroundColor: _AppColors.progressIndicatorBackground(isDark),
-              valueColor: const AlwaysStoppedAnimation(_AppColors.info),
+              valueColor: const AlwaysStoppedAnimation(AppColors.info),
             ),
           ),
           const SizedBox(height: 4),
           Text(
             '${_appState.convertedCount} / ${_appState.totalCount}',
-            style: const TextStyle(fontSize: 11, color: _AppColors.muted),
+            style: const TextStyle(fontSize: 11, color: AppColors.muted),
           ),
         ],
       ),

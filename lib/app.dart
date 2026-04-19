@@ -7,13 +7,32 @@ import 'services/services.dart';
 /// 应用入口
 /// 负责配置主题和依赖注入
 class VttToLrcApp extends StatelessWidget {
-  final FilePickerService? filePickerService;
-  final ConversionService? conversionService;
+  final FilePickerService filePickerService;
+  final ConversionService conversionService;
+  final AppState appState;
 
-  const VttToLrcApp({
+  factory VttToLrcApp({
+    Key? key,
+    FilePickerService? filePickerService,
+    ConversionService? conversionService,
+    AppState? appState,
+  }) {
+    final sharedRustBackend = RustBackendService();
+    return VttToLrcApp._(
+      key: key,
+      filePickerService:
+          filePickerService ?? FilePickerService(rustBackendService: sharedRustBackend),
+      conversionService:
+          conversionService ?? ConversionService(rustBackendService: sharedRustBackend),
+      appState: appState ?? AppState(),
+    );
+  }
+
+  const VttToLrcApp._({
     super.key,
-    this.filePickerService,
-    this.conversionService,
+    required this.filePickerService,
+    required this.conversionService,
+    required this.appState,
   });
 
   @override
@@ -35,6 +54,7 @@ class VttToLrcApp extends StatelessWidget {
             child: HomePage(
               filePickerService: filePickerService,
               conversionService: conversionService,
+              appState: appState,
             ),
           );
         },

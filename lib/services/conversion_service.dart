@@ -29,12 +29,14 @@ class ConversionService {
   /// [files]: 要转换的文件列表
   /// [onProgress]: 进度回调
   /// [onLog]: 日志回调，用于记录转换过程中的信息
+  /// [onWarning]: 警告回调，用于展示 Rust stderr 中的非失败诊断信息（如路径不存在等）。
   ///
   /// 返回转换结果列表
   Future<ConversionSummary> convertFiles(
     List<String> files, {
     required ConversionProgressCallback onProgress,
     required void Function(String message, bool isError) onLog,
+    void Function(String warning)? onWarning,
   }) async {
     if (_isConverting) {
       throw ConversionException('转换正在进行中');
@@ -50,6 +52,7 @@ class ConversionService {
       final results = await _rustBackendService.convertFiles(
         files,
         onProgress: onProgress,
+        onWarning: onWarning,
       );
 
       final successes = results.where((r) => r.isSuccess).toList();

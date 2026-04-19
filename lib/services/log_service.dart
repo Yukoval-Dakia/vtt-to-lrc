@@ -4,6 +4,12 @@ import '../ui/log_view.dart' show LogEntry;
 /// 日志服务
 /// 负责管理日志条目的添加、获取和清除
 class LogService {
+  static const int defaultMaxEntries = 2000;
+
+  LogService({int maxEntries = defaultMaxEntries})
+      : maxEntries = maxEntries < 1 ? 1 : maxEntries;
+
+  final int maxEntries;
   final List<LogEntry> _entries = [];
 
   List<LogEntry> get entries => List.unmodifiable(_entries);
@@ -15,6 +21,9 @@ class LogService {
       message: message,
       color: color,
     ));
+    if (_entries.length > maxEntries) {
+      _entries.removeRange(0, _entries.length - maxEntries);
+    }
   }
 
   /// 清除所有日志

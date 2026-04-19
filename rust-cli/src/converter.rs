@@ -1,4 +1,3 @@
-use encoding_rs::mem::decode_latin1;
 use encoding_rs::{GBK, WINDOWS_1252};
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
@@ -11,7 +10,15 @@ use std::sync::OnceLock;
 use crate::scanner::{is_vtt_path, to_absolute_path};
 
 /// 默认并发工作线程数
-pub const DEFAULT_WORKER_COUNT: usize = 8;
+pub const MAX_WORKER_COUNT: usize = 8;
+
+pub fn default_worker_count() -> usize {
+    let available = std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(MAX_WORKER_COUNT);
+
+    available.clamp(1, MAX_WORKER_COUNT)
+}
 
 /// 支持的编码类型
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -90,13 +97,21 @@ pub fn vtt_time_to_lrc(timestamp: &str) -> Option<String> {
     }
 
     let parts: Vec<&str> = trimmed.split(':').collect();
-    if parts.len() != 3 {
+    if !(2..=3).contains(&parts.len()) {
         return None;
     }
 
-    let hours = parts[0].parse::<u64>().ok()?;
-    let minutes = parts[1].parse::<u64>().ok()?;
-    let second_parts: Vec<&str> = parts[2].split('.').collect();
+    let (hours, minutes, seconds_part) = if parts.len() == 3 {
+        (
+            parts[0].parse::<u64>().ok()?,
+            parts[1].parse::<u64>().ok()?,
+            parts[2],
+        )
+    } else {
+        (0, parts[0].parse::<u64>().ok()?, parts[1])
+    };
+
+    let second_parts: Vec<&str> = seconds_part.split('.').collect();
     if second_parts.len() != 2 {
         return None;
     }
@@ -162,12 +177,11 @@ pub fn detect_and_decode(bytes: &[u8]) -> String {
         }
     }
 
-    let (decoded, _, _) = WINDOWS_1252.decode(bytes);
-    if !decoded.is_empty() {
-        return decoded.into_owned();
+    if bytes.is_empty() {
+        return String::new();
     }
 
-    decode_latin1(bytes).into_owned()
+    WINDOWS_1252.decode(bytes).0.into_owned()
 }
 
 /// 解析 VTT 文本并输出 LRC 行
@@ -279,14 +293,14 @@ fn is_likely_gbk(bytes: &[u8]) -> bool {
 fn tag_regex() -> &'static Regex {
     static TAG_REGEX: OnceLock<Regex> = OnceLock::new();
     TAG_REGEX.get_or_init(|| {
-        Regex::new(r"(?i)<(/?)(b|i|c|u|ruby|rt)(?:[.\s][^>]*)?>").expect("VTT 标签正则必须有效")
+        Regex::new(r"(?i)<(/?)(b|i|c|u|ruby|rt|v|lang)(?:[.\s][^>]*)?>").expect("VTT 标签正则必须有效")
     })
 }
 
 fn timestamp_regex() -> &'static Regex {
     static TIMESTAMP_REGEX: OnceLock<Regex> = OnceLock::new();
     TIMESTAMP_REGEX.get_or_init(|| {
-        Regex::new(r"^(\d+):([0-5]\d):([0-5]\d)\.\d{3}$").expect("时间戳正则必须有效")
+        Regex::new(r"^(?:(\d+):)?([0-5]\d):([0-5]\d)\.\d{3}$").expect("时间戳正则必须有效")
     })
 }
 
@@ -305,6 +319,8 @@ mod tests {
             "注音zhuyin"
         );
         assert_eq!(clean_vtt_text("<B>大写</B>"), "大写");
+        assert_eq!(clean_vtt_text("<v Narrator>旁白</v>"), "旁白");
+        assert_eq!(clean_vtt_text("<lang zh-CN>中文</lang>"), "中文");
     }
 
     #[test]
@@ -316,6 +332,10 @@ mod tests {
         assert_eq!(
             vtt_time_to_lrc("01:30:45.678"),
             Some("[90:45.67]".to_string())
+        );
+        assert_eq!(
+            vtt_time_to_lrc("00:05.120"),
+            Some("[00:05.12]".to_string())
         );
         assert_eq!(vtt_time_to_lrc("00:00:05.0"), None);
     }
@@ -347,6 +367,21 @@ mod tests {
             error,
             ConvertError::Format("无法解析时间戳: invalid".to_string())
         );
+    }
+
+    #[test]
+    fn 解析省略小时的时间戳() {
+        let content = "WEBVTT\n\n00:05.120 --> 00:08.500\n第一行";
+        let output = parse_vtt_content(content).expect("应当成功解析省略小时的时间戳");
+
+        assert_eq!(output, vec!["[00:05.12]第一行"]);
+    }
+
+    #[test]
+    fn 默认工作线程数始终在有效范围内() {
+        let worker_count = default_worker_count();
+
+        assert!((1..=MAX_WORKER_COUNT).contains(&worker_count));
     }
 
     #[test]
