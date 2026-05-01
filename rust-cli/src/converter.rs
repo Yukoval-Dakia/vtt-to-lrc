@@ -303,7 +303,8 @@ fn is_likely_gbk(bytes: &[u8]) -> bool {
 fn tag_regex() -> &'static Regex {
     static TAG_REGEX: OnceLock<Regex> = OnceLock::new();
     TAG_REGEX.get_or_init(|| {
-        Regex::new(r"(?i)<(/?)(b|i|c|u|ruby|rt|v|lang)(?:[.\s][^>]*)?>").expect("VTT 标签正则必须有效")
+        Regex::new(r"(?i)<(/?)(b|i|c|u|ruby|rt|v|lang)(?:[.\s][^>]*)?>")
+            .expect("VTT 标签正则必须有效")
     })
 }
 
@@ -343,10 +344,7 @@ mod tests {
             vtt_time_to_lrc("01:30:45.678"),
             Some("[90:45.67]".to_string())
         );
-        assert_eq!(
-            vtt_time_to_lrc("00:05.120"),
-            Some("[00:05.12]".to_string())
-        );
+        assert_eq!(vtt_time_to_lrc("00:05.120"), Some("[00:05.12]".to_string()));
         assert_eq!(vtt_time_to_lrc("00:00:05.0"), None);
     }
 
@@ -436,8 +434,11 @@ mod tests {
     fn 转换带音频后缀的文件输出剥离扩展名() {
         let dir = tempdir().expect("临时目录应当创建成功");
         let source = dir.path().join("song.wav.vtt");
-        fs::write(&source, "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n音频字幕\n")
-            .expect("测试文件应当写入成功");
+        fs::write(
+            &source,
+            "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n音频字幕\n",
+        )
+        .expect("测试文件应当写入成功");
 
         let destination = convert_vtt_to_lrc(&source).expect("转换应当成功");
 
