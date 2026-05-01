@@ -66,7 +66,8 @@ class _BackendStamp {
   const _BackendStamp(this.raw, this.size);
 
   static _BackendStamp? parse(String content) {
-    final lines = content
+    final normalized = content.replaceAll('\r\n', '\n');
+    final lines = normalized
         .split('\n')
         .map((line) => line.trim())
         .where((line) => line.isNotEmpty)
@@ -78,8 +79,8 @@ class _BackendStamp {
     if (size == null || size <= 0) {
       return null;
     }
-    // raw 保留原始字符串，写盘时按相同内容落地，方便快路径直接做字节比较
-    return _BackendStamp(content, size);
+    // raw 规范化为 LF，写盘与读盘保持一致，避免跨平台换行差异导致快路径失效
+    return _BackendStamp(normalized, size);
   }
 }
 
@@ -136,6 +137,8 @@ class RustBackendService {
       });
 
       final exitCode = await process.exitCode;
+      // forEach 监听器在进程退出前已并发运行；exitCode 解决时 stdout/stderr
+      // 可能仍有缓冲数据，Future.wait 确保两个流全部消费完毕后再检查结果。
       await Future.wait<void>([stdoutDone, stderrDone]);
 
       if (exitCode != 0) {
@@ -306,7 +309,8 @@ class RustBackendService {
     if (assetStamp != null &&
         await executableFile.exists() &&
         await stampFile.exists()) {
-      final existingStamp = await stampFile.readAsString();
+      final existingStamp =
+          (await stampFile.readAsString()).replaceAll('\r\n', '\n');
       final existingLength = await executableFile.length();
       if (existingStamp == assetStamp.raw &&
           existingLength == assetStamp.size) {
@@ -463,8 +467,9 @@ class RustBackendService {
     }
 
     // 协议：`Converted: <src> -> <dst>`。
+    // lastIndexOf 确保源路径本身含有 ' -> ' 时仍能正确切分。
     final body = line.substring(prefix.length);
-    final separator = body.indexOf(' -> ');
+    final separator = body.lastIndexOf(' -> ');
     if (separator == -1) {
       return null;
     }
@@ -487,8 +492,9 @@ class RustBackendService {
       return null;
     }
 
+    // lastIndexOf 确保源路径本身含有 ' -> ' 时仍能正确切分。
     final body = line.substring(prefix.length);
-    final separator = body.indexOf(' -> ');
+    final separator = body.lastIndexOf(' -> ');
     if (separator == -1) {
       return null;
     }
