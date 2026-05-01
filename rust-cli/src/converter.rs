@@ -359,6 +359,37 @@ mod tests {
     }
 
     #[test]
+    fn 西欧字符末尾高位字节不会被误判为_gbk() {
+        // 核心保障：当高位字节出现在序列末尾（无后续字节构成"对"），
+        // is_likely_gbk 的 windows(2) 启发式不会命中。
+        // 法语 "café" 的 Latin1 编码末位 0xE9 是这种情况。
+        assert_ne!(
+            detect_encoding(&[0x63, 0x61, 0x66, 0xE9]),
+            EncodingType::Gbk
+        );
+
+        // 全 ASCII 必然走 Utf8 分支（ASCII 是合法 UTF-8 的子集，会先命中 UTF-8 检查）
+        assert_eq!(detect_encoding(b"Hello world"), EncodingType::Utf8);
+
+        // 已知局限（AGENTS.md:228）：高位字节后跟任意 0x40..=0xFE 字节都会
+        // 触发 GBK 启发式，包括"高位 + ASCII 字母"组合。例如：
+        //   - 法语 "élève"：E9 6C ... → 0xE9 后跟 0x6C ('l') 构成有效 GBK 对
+        //   - 西语 "año"：F1 6F ... → 0xF1 后跟 0x6F ('o') 也构成有效 GBK 对
+        // 这些都会被识别为 Gbk 并按 GBK 解码（产出乱码）。这里把现状锁住，
+        // 未来若改进启发式（如加入字符频率统计）请评估是否要让这两条变更行为。
+        assert_eq!(
+            detect_encoding(&[0xE9, 0x6C, 0xE8, 0x76, 0x65]),
+            EncodingType::Gbk,
+            "élève 当前会被误判为 GBK——若此断言失败，说明启发式被改动，请确认"
+        );
+        assert_eq!(
+            detect_encoding(&[0x61, 0xF1, 0x6F]),
+            EncodingType::Gbk,
+            "año 当前会被误判为 GBK——若此断言失败，说明启发式被改动，请确认"
+        );
+    }
+
+    #[test]
     fn 解码多种输入内容() {
         let utf8_bom = [0xEF, 0xBB, 0xBF, b'H', b'i'];
         assert_eq!(detect_and_decode(&utf8_bom), "Hi");

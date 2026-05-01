@@ -58,8 +58,33 @@ class _RustCommandInvocation {
   });
 }
 
+/// 解析 `assets/backend/<binary>.stamp`：第一行 SHA-256，第二行字节长度
+class _BackendStamp {
+  final String raw;
+  final int size;
+
+  const _BackendStamp(this.raw, this.size);
+
+  static _BackendStamp? parse(String content) {
+    final lines = content
+        .split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+    if (lines.length < 2) {
+      return null;
+    }
+    final size = int.tryParse(lines[1]);
+    if (size == null || size <= 0) {
+      return null;
+    }
+    // raw 保留原始字符串，写盘时按相同内容落地，方便快路径直接做字节比较
+    return _BackendStamp(content, size);
+  }
+}
+
 /// Rust 后端服务
-/// 负责解压、调用并解析 Rust 可执行文件
+/// 负责按宿主 OS+架构选择内置二进制、解压到临时目录并调用，解析输出协议
 class RustBackendService {
   static const int _defaultMaxInlineArgumentCount = 200;
   static const int _defaultMaxInlineArgumentBytes = 100000;
@@ -87,25 +112,40 @@ class RustBackendService {
     final executablePath = await _ensureExecutable();
     final invocation = await _buildCommandInvocation('scan', paths);
     try {
-      final result = await Process.run(
-        executablePath,
-        invocation.arguments,
-      );
+      final process = await Process.start(executablePath, invocation.arguments);
+      final files = <String>[];
+      final warnings = <String>[];
 
-      final files = _parseOutputLines(result.stdout);
-      final warnings = _parseOutputLines(result.stderr);
+      final stdoutDone = process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .forEach((line) {
+        final trimmed = line.trim();
+        if (trimmed.isNotEmpty) {
+          files.add(trimmed);
+        }
+      });
+      final stderrDone = process.stderr
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .forEach((line) {
+        final trimmed = line.trim();
+        if (trimmed.isNotEmpty) {
+          warnings.add(trimmed);
+        }
+      });
 
-      if (result.exitCode != 0) {
+      final exitCode = await process.exitCode;
+      await Future.wait<void>([stdoutDone, stderrDone]);
+
+      if (exitCode != 0) {
         final message = warnings.isNotEmpty
             ? warnings.join('\n')
-            : 'Rust 扫描进程退出码异常：${result.exitCode}';
+            : 'Rust 扫描进程退出码异常：$exitCode';
         throw RustBackendException(message);
       }
 
-      return RustScanResult(
-        files: files,
-        warnings: warnings,
-      );
+      return RustScanResult(files: files, warnings: warnings);
     } finally {
       await _cleanupInvocation(invocation);
     }
@@ -130,12 +170,9 @@ class RustBackendService {
     final invocation = await _buildCommandInvocation('convert', normalizedFiles);
     final results = List<ConvertResult?>.filled(normalizedFiles.length, null);
     final sourceIndex = <String, int>{};
-    final destinationIndex = <String, int>{};
 
     for (var i = 0; i < normalizedFiles.length; i++) {
-      final source = normalizedFiles[i];
-      sourceIndex[source] = i;
-      destinationIndex[_expectedDestination(source)] = i;
+      sourceIndex[normalizedFiles[i]] = i;
     }
 
     onProgress?.call(0, normalizedFiles.length, null);
@@ -159,12 +196,12 @@ class RustBackendService {
               final trimmed = line.trim();
               if (trimmed.isEmpty) return;
 
-              final result = _parseSuccessLine(trimmed, destinationIndex, normalizedFiles);
+              final result = _parseSuccessLine(trimmed, sourceIndex);
               if (result == null) {
                 return;
               }
 
-              final index = destinationIndex[_normalizePath(result.destination!)];
+              final index = sourceIndex[_normalizePath(result.source)];
               if (index == null || results[index] != null) {
                 return;
               }
@@ -245,6 +282,7 @@ class RustBackendService {
   Future<String> _ensureExecutable() async {
     final assetName = await _resolveBackendAssetName();
     final assetPath = 'assets/backend/$assetName';
+    final stampAssetPath = '$assetPath.stamp';
 
     if (_cachedExecutablePath != null &&
         await File(_cachedExecutablePath!).exists()) {
@@ -257,20 +295,28 @@ class RustBackendService {
     await backendDir.create(recursive: true);
 
     final executablePath = p.join(backendDir.path, assetName);
-    final bytes = await _loadBackendBytes(assetPath);
+    final stampPath = p.join(backendDir.path, '$assetName.stamp');
     final executableFile = File(executablePath);
+    final stampFile = File(stampPath);
 
-    if (await executableFile.exists()) {
+    final assetStamp = await _loadBackendStamp(stampAssetPath);
+
+    // 快路径：磁盘已有可执行文件、本地 stamp 与资源 stamp 一致、文件大小匹配
+    // → 跳过整段二进制资源加载（约 2 MB asset I/O）
+    if (assetStamp != null &&
+        await executableFile.exists() &&
+        await stampFile.exists()) {
+      final existingStamp = await stampFile.readAsString();
       final existingLength = await executableFile.length();
-      if (existingLength == bytes.length) {
-        final existingBytes = await executableFile.readAsBytes();
-        if (_bytesEqual(existingBytes, bytes)) {
-          _cachedExecutablePath = executablePath;
-          return executablePath;
-        }
+      if (existingStamp == assetStamp.raw &&
+          existingLength == assetStamp.size) {
+        _cachedExecutablePath = executablePath;
+        return executablePath;
       }
     }
 
+    // 慢路径：从资源加载完整二进制写盘
+    final bytes = await _loadBackendBytes(assetPath);
     await executableFile.writeAsBytes(bytes, flush: true);
 
     if (!Platform.isWindows) {
@@ -284,6 +330,13 @@ class RustBackendService {
           message.isNotEmpty ? message : '无法设置 Rust 后端可执行权限。',
         );
       }
+    }
+
+    if (assetStamp != null) {
+      await stampFile.writeAsString(assetStamp.raw, flush: true);
+    } else if (await stampFile.exists()) {
+      // 资源里没带 stamp（向后兼容）：清掉旧 stamp，避免下次冷启动误命中老二进制
+      await stampFile.delete();
     }
 
     _cachedExecutablePath = executablePath;
@@ -344,6 +397,16 @@ class RustBackendService {
     }
   }
 
+  /// 加载资源里的版本戳；若不存在（旧版资源/未运行 build-and-sync），返回 null 走慢路径
+  Future<_BackendStamp?> _loadBackendStamp(String stampAssetPath) async {
+    try {
+      final raw = await rootBundle.loadString(stampAssetPath);
+      return _BackendStamp.parse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<_RustCommandInvocation> _buildCommandInvocation(
     String command,
     List<String> paths,
@@ -390,53 +453,29 @@ class RustBackendService {
     return false;
   }
 
-  bool _bytesEqual(List<int> left, List<int> right) {
-    if (left.length != right.length) {
-      return false;
-    }
-
-    for (var i = 0; i < left.length; i++) {
-      if (left[i] != right[i]) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  List<String> _parseOutputLines(Object output) {
-    final text = output.toString().trim();
-    if (text.isEmpty) {
-      return <String>[];
-    }
-
-    return const LineSplitter()
-        .convert(text)
-        .map((line) => line.trim())
-        .where((line) => line.isNotEmpty)
-        .toList();
-  }
-
   ConvertResult? _parseSuccessLine(
     String line,
-    Map<String, int> destinationIndex,
-    List<String> normalizedFiles,
+    Map<String, int> sourceIndex,
   ) {
     const prefix = 'Converted: ';
     if (!line.startsWith(prefix)) {
       return null;
     }
 
-    final destination = _normalizePath(line.substring(prefix.length).trim());
-    final index = destinationIndex[destination];
-    if (index == null) {
+    // 协议：`Converted: <src> -> <dst>`。
+    final body = line.substring(prefix.length);
+    final separator = body.indexOf(' -> ');
+    if (separator == -1) {
       return null;
     }
 
-    return ConvertResult.success(
-      normalizedFiles[index],
-      destination,
-    );
+    final source = _normalizePath(body.substring(0, separator).trim());
+    final destination = _normalizePath(body.substring(separator + 4).trim());
+    if (!sourceIndex.containsKey(source)) {
+      return null;
+    }
+
+    return ConvertResult.success(source, destination);
   }
 
   ConvertResult? _parseFailureLine(
@@ -448,27 +487,19 @@ class RustBackendService {
       return null;
     }
 
-    final separator = line.indexOf(' -> ');
+    final body = line.substring(prefix.length);
+    final separator = body.indexOf(' -> ');
     if (separator == -1) {
       return null;
     }
 
-    final source = _normalizePath(line.substring(prefix.length, separator).trim());
-    final error = line.substring(separator + 4).trim();
+    final source = _normalizePath(body.substring(0, separator).trim());
+    final error = body.substring(separator + 4).trim();
     if (!sourceIndex.containsKey(source)) {
       return null;
     }
 
-    return ConvertResult.failure(
-      source,
-      error,
-    );
-  }
-
-  String _expectedDestination(String source) {
-    // 与 Rust output_path 同步：剥掉 .vtt 和紧邻的一层扩展名后追加 .lrc。
-    final stripped = p.withoutExtension(p.withoutExtension(source));
-    return _normalizePath('$stripped.lrc');
+    return ConvertResult.failure(source, error);
   }
 
   String _normalizePath(String path) {

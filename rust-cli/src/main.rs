@@ -32,7 +32,7 @@ fn run_convert(args: &[String]) -> Result<(), i32> {
 
     if target_files.is_empty() {
         eprintln!(
-            "未找到 VTT 文件。用法: cargo run --manifest-path rust-cli/Cargo.toml -- [file1.vtt file2.vtt ...]"
+            "未找到 VTT 文件。用法: vtt-to-lrc-rust convert [file1.vtt file2.vtt ...] 或 vtt-to-lrc-rust convert --input-file <paths.txt>"
         );
         return Err(1);
     }
@@ -46,7 +46,11 @@ fn run_convert(args: &[String]) -> Result<(), i32> {
     let mut failures = 0;
     for result in results {
         if let Some(destination) = result.destination {
-            println!("Converted: {}", destination.display());
+            println!(
+                "Converted: {} -> {}",
+                result.source.display(),
+                destination.display()
+            );
         } else if let Some(error) = result.error {
             eprintln!("Failed: {} -> {}", result.source.display(), error);
             failures += 1;

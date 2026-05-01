@@ -23,5 +23,6 @@ flutter:
   uses-material-design: true
   assets:
     # 目录形式打包，运行时按宿主 OS+架构选择对应二进制
-    # （vtt-to-lrc-{macos,linux}-{arm64,x64}[.exe]）。
+    # （vtt-to-lrc-{macos,linux}-{arm64,x64}[.exe]），
+    # 同时自动包含每个二进制旁的 .stamp 文件供启动期快速比对。
     - assets/backend/
