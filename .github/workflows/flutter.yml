@@ -1,0 +1,42 @@
+name: Flutter
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: analyze + test (macOS arm64)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-cli
+
+      - name: Build & sync Rust backend binary
+        run: ./scripts/build-and-sync-rust-backend.sh
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: flutter --version
+        run: flutter --version
+
+      - name: flutter pub get
+        run: flutter pub get
+
+      - name: dart analyze
+        run: dart analyze
+
+      - name: flutter test
+        run: flutter test
