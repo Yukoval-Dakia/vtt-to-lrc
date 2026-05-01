@@ -27,12 +27,8 @@ fn run() -> Result<(), i32> {
 }
 
 fn run_convert(args: &[String]) -> Result<(), i32> {
-    let target_files = collect_target_files(
-        args,
-        "警告: 路径不存在: ",
-        "警告: 无法访问路径",
-        "警告: ",
-    )?;
+    let target_files =
+        collect_target_files(args, "警告: 路径不存在: ", "警告: 无法访问路径", "警告: ")?;
 
     if target_files.is_empty() {
         eprintln!(
@@ -41,10 +37,11 @@ fn run_convert(args: &[String]) -> Result<(), i32> {
         return Err(1);
     }
 
-    let results = convert_files_parallel(&target_files, default_worker_count()).map_err(|error| {
-        eprintln!("错误: 转换过程中发生异常: {error}");
-        4
-    })?;
+    let results =
+        convert_files_parallel(&target_files, default_worker_count()).map_err(|error| {
+            eprintln!("错误: 转换过程中发生异常: {error}");
+            4
+        })?;
 
     let mut failures = 0;
     for result in results {
@@ -167,10 +164,7 @@ mod tests {
         let input_file = dir.path().join("paths.txt");
         fs::write(&input_file, "/tmp/a.vtt\n\n/tmp/b.vtt\n").expect("输入文件应当写入成功");
 
-        let args = vec![
-            "--input-file".to_string(),
-            input_file.display().to_string(),
-        ];
+        let args = vec!["--input-file".to_string(), input_file.display().to_string()];
         let resolved = resolve_input_args(&args).expect("应当成功读取输入文件");
 
         assert_eq!(resolved, vec!["/tmp/a.vtt", "/tmp/b.vtt"]);
