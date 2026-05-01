@@ -39,7 +39,7 @@ cargo run --manifest-path rust-cli/Cargo.toml -- file1.vtt file2.vtt
 cargo run --manifest-path rust-cli/Cargo.toml -- convert --input-file paths.txt
 ```
 
-- 默认保持当前 Dart CLI 的核心行为：目录参数递归扫描、当前目录默认非递归扫描、输出同名 `.lrc`
+- 默认保持当前 Dart CLI 的核心行为：目录参数递归扫描、当前目录默认非递归扫描；输出 `.lrc` 时会剥掉 `.vtt` 以及紧邻的一层扩展名（如 `song.wav.vtt` → `song.lrc`）
 - Flutter GUI 当前也通过该 Rust 后端完成扫描和转换
 - 运行 Rust CLI 需要本机已安装 Rust toolchain
 

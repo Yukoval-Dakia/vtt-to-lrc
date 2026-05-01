@@ -265,8 +265,18 @@ fn convert_single_file(path: &Path) -> ConvertResult {
 }
 
 fn output_path(source: &Path) -> PathBuf {
+    // 剥掉 .vtt 以及紧邻的一层扩展名（若存在），再追加 .lrc。
+    // 例：a.wav.vtt -> a.lrc，notes.txt.vtt -> notes.lrc，a.vtt -> a.lrc，a.b.c.vtt -> a.b.lrc。
+    // 注意：最后一步必须手动拼接 ".lrc"，不能用 set_extension("lrc")，
+    // 否则 a.b 会被它当成"扩展 b"再剥一次，得到 a.lrc 而非 a.b.lrc。
     let mut output = source.to_path_buf();
-    output.set_extension("lrc");
+    output.set_extension("");
+    output.set_extension("");
+    if let Some(file_name) = output.file_name() {
+        let mut new_name = file_name.to_os_string();
+        new_name.push(".lrc");
+        output.set_file_name(new_name);
+    }
     output
 }
 
@@ -398,6 +408,42 @@ mod tests {
         let output = fs::read_to_string(destination).expect("结果文件应当可读");
 
         assert!(output.contains("[00:01.00]第一行 第二行"));
+    }
+
+    #[test]
+    fn 输出路径剥离_vtt_及紧邻的一层扩展名() {
+        assert_eq!(output_path(Path::new("a.wav.vtt")), PathBuf::from("a.lrc"));
+        assert_eq!(
+            output_path(Path::new("notes.txt.vtt")),
+            PathBuf::from("notes.lrc")
+        );
+        assert_eq!(output_path(Path::new("a.vtt")), PathBuf::from("a.lrc"));
+        assert_eq!(
+            output_path(Path::new("song.mp3.vtt")),
+            PathBuf::from("song.lrc")
+        );
+        assert_eq!(
+            output_path(Path::new("a.b.c.vtt")),
+            PathBuf::from("a.b.lrc")
+        );
+        assert_eq!(
+            output_path(Path::new("/dir/sub/track.flac.vtt")),
+            PathBuf::from("/dir/sub/track.lrc")
+        );
+    }
+
+    #[test]
+    fn 转换带音频后缀的文件输出剥离扩展名() {
+        let dir = tempdir().expect("临时目录应当创建成功");
+        let source = dir.path().join("song.wav.vtt");
+        fs::write(&source, "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\n音频字幕\n")
+            .expect("测试文件应当写入成功");
+
+        let destination = convert_vtt_to_lrc(&source).expect("转换应当成功");
+
+        assert_eq!(destination, dir.path().join("song.lrc"));
+        let output = fs::read_to_string(&destination).expect("结果文件应当可读");
+        assert!(output.contains("[00:01.00]音频字幕"));
     }
 
     #[test]

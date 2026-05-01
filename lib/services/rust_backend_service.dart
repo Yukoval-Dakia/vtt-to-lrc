@@ -434,7 +434,9 @@ class RustBackendService {
   }
 
   String _expectedDestination(String source) {
-    return _normalizePath('${p.withoutExtension(source)}.lrc');
+    // 与 Rust output_path 同步：剥掉 .vtt 和紧邻的一层扩展名后追加 .lrc。
+    final stripped = p.withoutExtension(p.withoutExtension(source));
+    return _normalizePath('$stripped.lrc');
   }
 
   String _normalizePath(String path) {

@@ -250,4 +250,43 @@ UTF-8 BOM 测试
       '[00:03.00]第二条',
     );
   });
+
+  test('源文件名带额外扩展名（如 .wav.vtt）时输出剥离一层扩展名', () async {
+    final audioVtt = p.join(tempDir.path, 'song.wav.vtt');
+    await File(audioVtt).writeAsString('''WEBVTT
+
+00:00:01.000 --> 00:00:02.000
+音频字幕
+''');
+
+    final dottedVtt = p.join(tempDir.path, 'a.b.c.vtt');
+    await File(dottedVtt).writeAsString('''WEBVTT
+
+00:00:02.000 --> 00:00:03.000
+多层扩展名
+''');
+
+    final results = await rustBackendService.convertFiles([audioVtt, dottedVtt]);
+
+    expect(results.length, 2);
+    expect(results.every((r) => r.isSuccess), isTrue);
+
+    final audioResult =
+        results.firstWhere((r) => r.source == p.absolute(audioVtt));
+    expect(audioResult.destination, p.absolute(p.join(tempDir.path, 'song.lrc')),
+        reason: 'song.wav.vtt 应输出为 song.lrc');
+    expect(
+      await File(p.join(tempDir.path, 'song.lrc')).readAsString(),
+      '[00:01.00]音频字幕',
+    );
+
+    final dottedResult =
+        results.firstWhere((r) => r.source == p.absolute(dottedVtt));
+    expect(dottedResult.destination, p.absolute(p.join(tempDir.path, 'a.b.lrc')),
+        reason: 'a.b.c.vtt 应只剥一层 -> a.b.lrc');
+    expect(
+      await File(p.join(tempDir.path, 'a.b.lrc')).readAsString(),
+      '[00:02.00]多层扩展名',
+    );
+  });
 }
