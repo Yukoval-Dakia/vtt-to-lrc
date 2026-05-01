@@ -7,8 +7,16 @@ on:
 
 jobs:
   test:
-    name: analyze + test (macOS arm64)
-    runs-on: macos-14
+    name: analyze + test (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            label: macOS arm64
+          - os: ubuntu-latest
+            label: Linux x64
     steps:
       - uses: actions/checkout@v4
 

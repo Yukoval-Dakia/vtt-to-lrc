@@ -22,4 +22,6 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/backend/vtt-to-lrc-macos-arm64
+    # 目录形式打包，运行时按宿主 OS+架构选择对应二进制
+    # （vtt-to-lrc-{macos,linux}-{arm64,x64}[.exe]）。
+    - assets/backend/

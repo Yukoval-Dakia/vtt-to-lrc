@@ -61,8 +61,6 @@ class _RustCommandInvocation {
 /// Rust 后端服务
 /// 负责解压、调用并解析 Rust 可执行文件
 class RustBackendService {
-  static const String _backendAssetPath = 'assets/backend/vtt-to-lrc-macos-arm64';
-  static const String _backendFileName = 'vtt-to-lrc-macos-arm64';
   static const int _defaultMaxInlineArgumentCount = 200;
   static const int _defaultMaxInlineArgumentBytes = 100000;
 
@@ -245,24 +243,8 @@ class RustBackendService {
   }
 
   Future<String> _ensureExecutable() async {
-    if (!Platform.isMacOS) {
-      throw RustBackendException('当前仅支持 macOS 运行 Rust 后端。');
-    }
-
-    final architectureResult = await Process.run('uname', ['-m']);
-    if (architectureResult.exitCode != 0) {
-      final errorMessage = architectureResult.stderr.toString().trim();
-      throw RustBackendException(
-        errorMessage.isNotEmpty ? errorMessage : '无法检测当前 macOS 架构。',
-      );
-    }
-
-    final architecture = architectureResult.stdout.toString().trim();
-    if (architecture != 'arm64') {
-      throw RustBackendException(
-        '当前仅内置 macOS arm64 的 Rust 后端，当前架构为 $architecture。',
-      );
-    }
+    final assetName = await _resolveBackendAssetName();
+    final assetPath = 'assets/backend/$assetName';
 
     if (_cachedExecutablePath != null &&
         await File(_cachedExecutablePath!).exists()) {
@@ -274,8 +256,8 @@ class RustBackendService {
     );
     await backendDir.create(recursive: true);
 
-    final executablePath = p.join(backendDir.path, _backendFileName);
-    final bytes = await _loadBackendBytes();
+    final executablePath = p.join(backendDir.path, assetName);
+    final bytes = await _loadBackendBytes(assetPath);
     final executableFile = File(executablePath);
 
     if (await executableFile.exists()) {
@@ -291,21 +273,71 @@ class RustBackendService {
 
     await executableFile.writeAsBytes(bytes, flush: true);
 
-    final chmodResult = await Process.run('/bin/chmod', ['755', executablePath]);
-    if (chmodResult.exitCode != 0) {
-      final message = chmodResult.stderr.toString().trim();
-      throw RustBackendException(
-        message.isNotEmpty ? message : '无法设置 Rust 后端可执行权限。',
+    if (!Platform.isWindows) {
+      final chmodResult = await Process.run(
+        '/bin/chmod',
+        ['755', executablePath],
       );
+      if (chmodResult.exitCode != 0) {
+        final message = chmodResult.stderr.toString().trim();
+        throw RustBackendException(
+          message.isNotEmpty ? message : '无法设置 Rust 后端可执行权限。',
+        );
+      }
     }
 
     _cachedExecutablePath = executablePath;
     return executablePath;
   }
 
-  Future<List<int>> _loadBackendBytes() async {
+  Future<String> _resolveBackendAssetName() async {
+    final os = _resolveOsTag();
+    final arch = await _resolveArchTag();
+    final suffix = Platform.isWindows ? '.exe' : '';
+    return 'vtt-to-lrc-$os-$arch$suffix';
+  }
+
+  String _resolveOsTag() {
+    if (Platform.isMacOS) return 'macos';
+    if (Platform.isLinux) return 'linux';
+    if (Platform.isWindows) return 'windows';
+    throw RustBackendException(
+      '当前操作系统不受支持：${Platform.operatingSystem}',
+    );
+  }
+
+  Future<String> _resolveArchTag() async {
+    if (Platform.isWindows) {
+      final raw =
+          (Platform.environment['PROCESSOR_ARCHITECTURE'] ?? '').toLowerCase();
+      return _normalizeArch(raw);
+    }
+    final result = await Process.run('uname', ['-m']);
+    if (result.exitCode != 0) {
+      final message = result.stderr.toString().trim();
+      throw RustBackendException(
+        message.isNotEmpty ? message : '无法检测 CPU 架构。',
+      );
+    }
+    return _normalizeArch(result.stdout.toString().trim().toLowerCase());
+  }
+
+  String _normalizeArch(String raw) {
+    switch (raw) {
+      case 'arm64':
+      case 'aarch64':
+        return 'arm64';
+      case 'x86_64':
+      case 'amd64':
+        return 'x64';
+      default:
+        throw RustBackendException('不支持的 CPU 架构：$raw');
+    }
+  }
+
+  Future<List<int>> _loadBackendBytes(String assetPath) async {
     try {
-      final data = await rootBundle.load(_backendAssetPath);
+      final data = await rootBundle.load(assetPath);
       return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
     } catch (error) {
       throw RustBackendException('无法加载 Rust 后端资源：$error');
