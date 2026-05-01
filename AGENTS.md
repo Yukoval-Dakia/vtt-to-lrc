@@ -28,7 +28,7 @@
 | 层级 | 技术 |
 |------|------|
 | GUI 框架 | Flutter (SDK ^3.11.0) |
-| 平台 | GUI: macOS（`macos/` 原生工程，依赖 `macos_ui`）；Rust 后端二进制按平台命名打包（已内置 macOS arm64 + Linux x64） |
+| 平台 | GUI: macOS（`macos/` 原生工程，依赖 `macos_ui`）；Rust 后端二进制按平台命名打包（macOS arm64 已内置；Linux x64 需在 Linux 上运行 build-and-sync 后 commit） |
 | UI 库 | `macos_ui: ^2.1.4` |
 | 状态管理 | 自定义 `ChangeNotifier`（`AppState`） |
 | 文件选择 | `file_picker: ^8.0.0` |
@@ -73,9 +73,9 @@ rust-cli/                          # 本地构建的 Rust 后端
 
 assets/
 └── backend/                              # 按目录打包，运行时按宿主 OS+架构选对应二进制
-    ├── vtt-to-lrc-macos-arm64            # macOS arm64 二进制
+    ├── vtt-to-lrc-macos-arm64            # macOS arm64 二进制（已内置）
     ├── vtt-to-lrc-macos-arm64.stamp      # SHA-256 + 字节数，启动期快速比对
-    └── vtt-to-lrc-linux-x64              # Linux x64 二进制（CI 矩阵需要；可附带同名 .stamp）
+    └── vtt-to-lrc-linux-x64              # Linux x64 二进制（需在 Linux 上运行 build-and-sync 生成后 commit）
 
 skill-package/
 └── vtt-to-lrc/                    # Skill 发布包，含独立的二进制（与 assets/ 平台命名一致）和 scripts/convert.sh
@@ -229,7 +229,7 @@ Rust 可执行文件接受两个子命令：
 2. **符号链接**：Rust 扫描使用 `fs::symlink_metadata`，`FileType::is_file() / is_dir()` 判断会自动跳过符号链接，防止循环。
 3. **编码歧义**：GBK 与 Latin1 字节范围重叠，存在极小概率的歧义，测试已接受此固有局限。
 4. **进程参数长度**：`RustBackendService` 会在路径数量或参数总长度超过阈值时自动切换到 `--input-file` 协议，降低触发 macOS `ARG_MAX` 的风险。
-5. **平台支持**：`RustBackendService._ensureExecutable` 在运行时按 `Platform.isMacOS/isLinux/isWindows` + `uname -m`（Windows 用 `PROCESSOR_ARCHITECTURE`）解析平台标签，选取 `assets/backend/vtt-to-lrc-{macos,linux,windows}-{arm64,x64}[.exe]`。当前仓库内置 macOS arm64 与 Linux x64 两份二进制；其它组合（如 Intel Mac、Windows）需要另行 build & sync。
+5. **平台支持**：`RustBackendService._ensureExecutable` 在运行时按 `Platform.isMacOS/isLinux/isWindows` + `uname -m`（Windows 用 `PROCESSOR_ARCHITECTURE`）解析平台标签，选取 `assets/backend/vtt-to-lrc-{macos,linux,windows}-{arm64,x64}[.exe]`。当前仓库已内置 macOS arm64；Linux x64 需在 Linux 上运行 build-and-sync 后 commit；其它组合（如 Intel Mac、Windows）同理。
 6. **无网络 / 无持久化**：纯本地离线工具，不存在外部 API、用户认证、敏感数据等风险面。
 
 ---
