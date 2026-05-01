@@ -28,7 +28,7 @@
 | 层级 | 技术 |
 |------|------|
 | GUI 框架 | Flutter (SDK ^3.11.0) |
-| 平台 | macOS（已配置 `macos/` 原生工程，当前只打包 arm64 Rust 后端） |
+| 平台 | GUI: macOS（`macos/` 原生工程，依赖 `macos_ui`）；Rust 后端二进制按平台命名打包（已内置 macOS arm64 + Linux x64） |
 | UI 库 | `macos_ui: ^2.1.4` |
 | 状态管理 | 自定义 `ChangeNotifier`（`AppState`） |
 | 文件选择 | `file_picker: ^8.0.0` |
@@ -56,7 +56,7 @@ lib/
 │   ├── log_service.dart           # 日志条目管理
 │   └── rust_backend_service.dart  # 调用 Rust 可执行文件的桥接层
 └── ui/
-    ├── home_page.dart             # 主页面（按钮、进度、日志、拖拽区域、_AppColors）
+    ├── home_page.dart             # 主页面（按钮、进度、日志、拖拽区域）
     ├── log_view.dart              # 可滚动日志列表组件
     └── drop_overlay.dart          # 拖拽时显示的浮层提示
 
@@ -72,11 +72,13 @@ rust-cli/                          # 本地构建的 Rust 后端
     └── scanner.rs                 # 递归扫描、路径规范化
 
 assets/
-└── backend/
-    └── vtt-to-lrc-macos-arm64     # 内嵌到 Flutter 资源中的 Rust 二进制（macOS arm64）
+└── backend/                              # 按目录打包，运行时按宿主 OS+架构选对应二进制
+    ├── vtt-to-lrc-macos-arm64            # macOS arm64 二进制
+    ├── vtt-to-lrc-macos-arm64.stamp      # SHA-256 + 字节数，启动期快速比对
+    └── vtt-to-lrc-linux-x64              # Linux x64 二进制（CI 矩阵需要；可附带同名 .stamp）
 
 skill-package/
-└── vtt-to-lrc/                    # Skill 发布包，含独立的 macOS arm64 二进制和 scripts/convert.sh
+└── vtt-to-lrc/                    # Skill 发布包，含独立的二进制（与 assets/ 平台命名一致）和 scripts/convert.sh
 
 test/
 └── rust_backend_service_test.dart # 通过 Flutter 调用真实 Rust 后端的集成测试
@@ -169,12 +171,12 @@ cargo clippy --manifest-path rust-cli/Cargo.toml --all-targets -- -D warnings
 Rust 可执行文件接受两个子命令：
 
 - `scan <path...>`：递归扫描路径，stdout 每行一个绝对路径，stderr 每行一条警告。正常退出码 0。
-- `convert <file...>`：并发转换。stdout 每行 `Converted: <dst>`；stderr 每行 `Failed: <src> -> <error>` 或其它警告；若存在 `Failed:` 则退出码 1，否则 0。
+- `convert <file...>`：并发转换。stdout 每行 `Converted: <src> -> <dst>`；stderr 每行 `Failed: <src> -> <error>` 或其它警告；若存在 `Failed:` 则退出码 1，否则 0。
 - `scan --input-file <txt>` / `convert --input-file <txt>`：从文本文件读取路径列表，每行一个路径，供大批量输入时使用。
 
 `RustBackendService` 在 Dart 侧解析：
-- stdout 只匹配 `Converted: ` 前缀。
-- stderr 匹配 `Failed: X -> Y` 变为 `ConvertResult.failure`；**其他 stderr 行视为警告**，通过 `onWarning` 回调透传给 UI（而非抛异常），只有当进程完全没有返回任何成功/失败结果时，才作为 `RustBackendException` 抛出。
+- stdout 匹配 `Converted: <src> -> <dst>` 变为 `ConvertResult.success`，源路径用于在 `sourceIndex` 中定位记录，目的路径直接采用 Rust 提供的值（避免 Dart 端再独立重建一次输出路径，与 Rust 算法存在漂移风险）。
+- stderr 匹配 `Failed: <src> -> <error>` 变为 `ConvertResult.failure`；**其他 stderr 行视为警告**，通过 `onWarning` 回调透传给 UI（而非抛异常），只有当进程完全没有返回任何成功/失败结果时，才作为 `RustBackendException` 抛出。
 
 ### 5. 并发
 
@@ -197,7 +199,7 @@ Rust 可执行文件接受两个子命令：
 1. **注释语言**：所有代码注释、日志、UI 文案、错误信息一律使用简体中文。
 2. **Dart lint**：基于 `flutter_lints`，无自定义禁用。
 3. **Rust lint**：对 `cargo clippy -D warnings` 零告警。
-4. **UI 颜色**：语义色集中在 `lib/ui/app_colors.dart` 的 `AppColors`；`lib/ui/home_page.dart` 内的 `_AppColors` 只保留主题相关背景和文本色。
+4. **UI 颜色**：语义色（success/error/warning/info/muted）集中在 `lib/ui/app_colors.dart` 的 `AppColors`；主题相关的背景/表面/文本色集中在同一文件的 `AppThemeColors`。`HomePage` 不再持有任何颜色定义。
 5. **异常处理**：
    - 服务层自定义 Exception：`ConversionException`、`FilePickerException`、`RustBackendException`。
    - 单文件失败包装为 `ConvertResult.failure`，不直接抛到 UI。
@@ -227,15 +229,15 @@ Rust 可执行文件接受两个子命令：
 2. **符号链接**：Rust 扫描使用 `fs::symlink_metadata`，`FileType::is_file() / is_dir()` 判断会自动跳过符号链接，防止循环。
 3. **编码歧义**：GBK 与 Latin1 字节范围重叠，存在极小概率的歧义，测试已接受此固有局限。
 4. **进程参数长度**：`RustBackendService` 会在路径数量或参数总长度超过阈值时自动切换到 `--input-file` 协议，降低触发 macOS `ARG_MAX` 的风险。
-5. **架构限制**：`RustBackendService._ensureExecutable` 仅支持 macOS arm64。Intel Mac 会抛 `RustBackendException`。
+5. **平台支持**：`RustBackendService._ensureExecutable` 在运行时按 `Platform.isMacOS/isLinux/isWindows` + `uname -m`（Windows 用 `PROCESSOR_ARCHITECTURE`）解析平台标签，选取 `assets/backend/vtt-to-lrc-{macos,linux,windows}-{arm64,x64}[.exe]`。当前仓库内置 macOS arm64 与 Linux x64 两份二进制；其它组合（如 Intel Mac、Windows）需要另行 build & sync。
 6. **无网络 / 无持久化**：纯本地离线工具，不存在外部 API、用户认证、敏感数据等风险面。
 
 ---
 
 ## 修改代码时的注意点
 
-- **改动 Rust 核心（`rust-cli/`）后**，优先运行 `sh scripts/build-and-sync-rust-backend.sh` 同步 `assets/backend/vtt-to-lrc-macos-arm64`（GUI 依赖）和 `skill-package/vtt-to-lrc/scripts/vtt-to-lrc-macos-arm64`（Skill 发布依赖）。两份二进制若不同步，GUI 与 Skill 会表现不一致。
+- **改动 Rust 核心（`rust-cli/`）后**，优先运行 `sh scripts/build-and-sync-rust-backend.sh`。脚本会按当前宿主的 `uname -s`/`uname -m` 推算文件名 `vtt-to-lrc-{os}-{arch}`，同步到 `assets/backend/`（GUI 依赖）和 `skill-package/vtt-to-lrc/scripts/`（Skill 发布依赖），并生成 `assets/backend/<binary>.stamp`（SHA-256 + 字节数）。`RustBackendService._ensureExecutable` 在冷启动时只需读这个几十字节的 stamp 与磁盘缓存比对，命中则跳过整段二进制资源加载。如果绕过脚本手工拷贝二进制，记得把同名 `.stamp` 一并更新，否则会走慢路径但仍然正确。要发布到其它平台（如 Windows、Intel Mac），需要在对应平台跑一次脚本生成对应文件名的二进制 + stamp，然后 commit 进仓库。
 - **改动 Dart/Rust 进程协议**（stdout/stderr 行格式）需同时更新 `rust-cli/src/main.rs` 与 `lib/services/rust_backend_service.dart`，并扩展 `test/rust_backend_service_test.dart`。
-- **新增语义色** 请在 `lib/ui/app_colors.dart` 中集中定义；若是主题相关背景/文本色，再放入 `_AppColors`。
+- **新增语义色** 请在 `lib/ui/app_colors.dart` 中集中定义；主题相关背景/文本色统一放在同一文件的 `AppThemeColors` 类。
 - **新增服务类** 请在 `lib/services/services.dart` 中 `export`；若需在 UI 前构造，走 `main.dart` 的依赖注入链。
 - **改动 CLI 行为** 请保持 `bin/cli.dart` 退出码与 Rust 后端一致（失败 1、未找到二进制 5）；Rust `main.rs` 中失败返回 1、IO 返回 3、线程池失败 4。

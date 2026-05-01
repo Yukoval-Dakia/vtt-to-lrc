@@ -4,9 +4,9 @@
 build/
 *.iml
 .metadata
-pubspec.lock
 .flutter-plugins
 .flutter-plugins-dependencies
+# Flutter 推荐：应用类项目应提交 pubspec.lock 以保证构建可重复
 
 # IDE
 .idea/
