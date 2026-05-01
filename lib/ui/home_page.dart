@@ -10,57 +10,6 @@ import 'app_colors.dart';
 import 'log_view.dart';
 import 'drop_overlay.dart';
 
-/// 应用颜色配置
-/// 统一管理所有颜色，支持深色/浅色主题
-class _AppColors {
-  // ── 背景颜色 ──
-  /// 主背景色
-  static const Color backgroundLight = Color(0xFFF5F5F5);
-  static const Color backgroundDark = Color(0xFF1E1E1E);
-
-  /// 状态行/卡片背景色
-  static const Color surfaceLight = Color(0xFFEEEEEE);
-  static const Color surfaceDark = Color(0xFF3A3A3A);
-
-  /// 进度指示器背景色
-  static const Color progressBackgroundLight = Color(0xFFE8E8E8);
-  static const Color progressBackgroundDark = Color(0xFF2A2A2A);
-
-  // ── 文本颜色 ──
-  /// 主要文本颜色
-  static const Color textPrimaryLight = Color(0xFF444444);
-  static const Color textPrimaryDark = Color(0xFFE0E0E0);
-
-  /// 次要文本颜色
-  static const Color textSecondaryLight = Color(0xFF999999);
-  static const Color textSecondaryDark = Color(0xFF808080);
-
-  // ── 便捷方法 ──
-  /// 根据亮度获取主背景色
-  static Color background(bool isDark) =>
-      isDark ? backgroundDark : backgroundLight;
-
-  /// 根据亮度获取表面颜色
-  static Color surface(bool isDark) =>
-      isDark ? surfaceDark : surfaceLight;
-
-  /// 根据亮度获取进度背景色
-  static Color progressBackground(bool isDark) =>
-      isDark ? progressBackgroundDark : progressBackgroundLight;
-
-  /// 根据亮度获取主要文本颜色
-  static Color textPrimary(bool isDark) =>
-      isDark ? textPrimaryDark : textPrimaryLight;
-
-  /// 根据亮度获取次要文本颜色
-  static Color textSecondary(bool isDark) =>
-      isDark ? textSecondaryDark : textSecondaryLight;
-
-  /// 根据亮度获取进度条背景色
-  static Color progressIndicatorBackground(bool isDark) =>
-      isDark ? Colors.grey[700]! : Colors.grey[300]!;
-}
-
 /// 主页组件
 /// 使用服务层处理业务逻辑，UI 只负责显示
 class HomePage extends StatefulWidget {
@@ -286,12 +235,12 @@ class _HomePageState extends State<HomePage> {
     final isDark = brightness == Brightness.dark;
 
     return MacosScaffold(
-      backgroundColor: _AppColors.background(isDark),
+      backgroundColor: AppThemeColors.background(isDark),
       children: [
         ContentArea(
           builder: (context, scrollController) {
             return Container(
-              color: _AppColors.background(isDark),
+              color: AppThemeColors.background(isDark),
               child: DropTarget(
                 onDragEntered: (_) => _appState.setDragging(true),
                 onDragExited: (_) => _appState.setDragging(false),
@@ -368,14 +317,14 @@ class _HomePageState extends State<HomePage> {
                                     vertical: 8,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: _AppColors.surface(isDark),
+                                    color: AppThemeColors.surface(isDark),
                                     borderRadius: BorderRadius.circular(6),
                                   ),
                                   child: Text(
                                     _appState.statusText,
                                     style: TextStyle(
                                       fontSize: 13,
-                                      color: _AppColors.textPrimary(isDark),
+                                      color: AppThemeColors.textPrimary(isDark),
                                     ),
                                   ),
                                 ),
@@ -401,7 +350,7 @@ class _HomePageState extends State<HomePage> {
                                 style: TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w600,
-                                  color: _AppColors.textPrimary(isDark),
+                                  color: AppThemeColors.textPrimary(isDark),
                                 ),
                               ),
                               const Spacer(),
@@ -410,7 +359,7 @@ class _HomePageState extends State<HomePage> {
                                   '共 ${_appState.fileCount} 个文件',
                                   style: TextStyle(
                                     fontSize: 12,
-                                    color: _AppColors.textSecondary(isDark),
+                                    color: AppThemeColors.textSecondary(isDark),
                                   ),
                                 ),
                             ],
@@ -443,7 +392,7 @@ class _HomePageState extends State<HomePage> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _AppColors.progressBackground(isDark),
+        color: AppThemeColors.progressBackground(isDark),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Column(
@@ -473,7 +422,7 @@ class _HomePageState extends State<HomePage> {
               value: _appState.totalCount > 0
                   ? _appState.convertedCount / _appState.totalCount
                   : 0,
-              backgroundColor: _AppColors.progressIndicatorBackground(isDark),
+              backgroundColor: AppThemeColors.progressTrack(isDark),
               valueColor: const AlwaysStoppedAnimation(AppColors.info),
             ),
           ),

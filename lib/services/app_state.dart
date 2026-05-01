@@ -4,7 +4,11 @@ import '../ui/log_view.dart' show LogEntry;
 import 'log_service.dart';
 
 /// 应用状态
-/// 管理 UI 相关的状态，如选择的文件、转换进度等
+/// 管理 UI 相关的状态，如选择的文件、转换进度等。
+///
+/// 颜色策略：本类只为自己产生的内部事件附带语义色（如"已选择文件"用 info、
+/// "已清除"用 warning），外部调用方请通过 [addLog] 传入自己想要的颜色，
+/// 避免在两处分别维护语义→颜色的映射。
 class AppState extends ChangeNotifier {
   // 文件选择状态
   List<String> _selectedFiles = [];
@@ -46,12 +50,12 @@ class AppState extends ChangeNotifier {
     _canConvert = true;
     _fileCount = files.length;
 
-    _log(
+    addLog(
       source == 'drop' ? '拖拽导入文件：' : '选择了文件：',
-      isInfo: true,
+      color: AppColors.info,
     );
     for (final f in files) {
-      _log('   $f', isMuted: true);
+      addLog('   $f', color: AppColors.muted);
     }
 
     notifyListeners();
@@ -65,14 +69,14 @@ class AppState extends ChangeNotifier {
     _canConvert = vttFiles.isNotEmpty;
     _fileCount = vttFiles.length;
 
-    _log(
+    addLog(
       source == 'drop'
           ? '拖拽导入目录：$directory'
           : '扫描目录：$directory',
-      isSuccess: true,
+      color: AppColors.success,
     );
     for (final f in vttFiles) {
-      _log('   $f', isMuted: true);
+      addLog('   $f', color: AppColors.muted);
     }
 
     notifyListeners();
@@ -86,7 +90,7 @@ class AppState extends ChangeNotifier {
     _canConvert = false;
     _fileCount = 0;
 
-    _log('已清除选择', isWarning: true);
+    addLog('已清除选择', color: AppColors.warning);
     notifyListeners();
   }
 
@@ -103,7 +107,7 @@ class AppState extends ChangeNotifier {
     _totalCount = total;
     _currentFile = '';
 
-    _log('开始转换 $total 个文件…', isInfo: true);
+    addLog('开始转换 $total 个文件…', color: AppColors.info);
     notifyListeners();
   }
 
@@ -125,33 +129,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 添加日志
-  void _log(
-    String message, {
-    bool isError = false,
-    bool isSuccess = false,
-    bool isWarning = false,
-    bool isInfo = false,
-    bool isMuted = false,
-  }) {
-    Color? color;
-    if (isError) {
-      color = AppColors.error;
-    } else if (isSuccess) {
-      color = AppColors.success;
-    } else if (isWarning) {
-      color = AppColors.warning;
-    } else if (isInfo) {
-      color = AppColors.info;
-    } else if (isMuted) {
-      color = AppColors.muted;
-    }
-
-    _logService.add(message, color: color);
-    notifyListeners();
-  }
-
-  /// 添加外部日志（带颜色）
+  /// 添加日志（支持自定义颜色）
   void addLog(String message, {Color? color}) {
     _logService.add(message, color: color);
     notifyListeners();
@@ -164,18 +142,5 @@ class AppState extends ChangeNotifier {
   }
 
   /// 获取要转换的文件列表
-  List<String> getFilesToConvert() {
-    if (_selectedFiles.isNotEmpty) {
-      return _selectedFiles;
-    }
-    return [];
-  }
-
-  /// 获取要扫描的目录
-  String? getDirectoryToScan() {
-    if (_selectedDirectory.isNotEmpty) {
-      return _selectedDirectory;
-    }
-    return null;
-  }
+  List<String> getFilesToConvert() => List<String>.unmodifiable(_selectedFiles);
 }

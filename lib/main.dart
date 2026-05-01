@@ -11,6 +11,7 @@ void main() {
     VttToLrcApp(
       filePickerService: FilePickerService(rustBackendService: rustBackend),
       conversionService: ConversionService(rustBackendService: rustBackend),
+      appState: AppState(),
     ),
   );
 }
